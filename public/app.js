@@ -1124,6 +1124,13 @@ if (btnSaveCalibration && inputLitersPerPulse) {
       } else {
         alert('Erro ao salvar calibração: ' + (result.error || 'Erro desconhecido'));
       }
+    } catch (err) {
+      console.error('Erro ao salvar calibração:', err);
+      alert('Erro de conexão ao salvar calibração.');
+    }
+  });
+}
+
 // Hard Reset (Zerar Banco de Dados e Histórico)
 const btnFactoryReset = document.getElementById('btn-factory-reset');
 if (btnFactoryReset) {
