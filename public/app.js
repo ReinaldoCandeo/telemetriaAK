@@ -48,7 +48,7 @@ let systemTotalsCache = null;
 
 async function fetchSystemSummary() {
   try {
-    const response = await fetch('/api/telemetry/system-summary');
+    const response = await fetch('/api/telemetry/system-summary', { cache: 'no-store' });
     if (!response.ok) return;
     const result = await response.json();
     if (result.ok) {
@@ -105,15 +105,20 @@ function updateUI(telemetry) {
     valEspPulseCount.textContent = currentPulse.toLocaleString('pt-BR');
   }
 
-  // System Cumulative Persistent Totals
-  const sysPulseTotal = systemTotalsCache ? systemTotalsCache.system_pulse_total : currentPulse;
+  // System Cumulative Persistent Totals (Fonte oficial: Supabase system_pulse_total)
+  const sysPulseTotal = systemTotalsCache && typeof systemTotalsCache.system_pulse_total === 'number'
+    ? systemTotalsCache.system_pulse_total
+    : currentPulse;
   const sysVolLiters = systemTotalsCache ? systemTotalsCache.system_volume_liters : null;
 
   valPulseTotal.textContent = sysPulseTotal.toLocaleString('pt-BR');
   valPulseDelta.textContent = `Acumulado preservado • Último envio: +${telemetry.pulse_delta || 0}`;
 
-  // Calibration check for VOLUME MEDIDO Card & Calibration Card
-  const calib = telemetry.calibration;
+  // Calibration check for VOLUME MEDIDO Card & Calibration Card (NÃO usa liters_total do ESP)
+  const calib = (systemTotalsCache && systemTotalsCache.calibration_status)
+    ? { status: systemTotalsCache.calibration_status, liters_per_pulse: systemTotalsCache.liters_per_pulse }
+    : telemetry.calibration;
+
   if (calib && calib.status === 'calibrated' && sysVolLiters !== null) {
     const calcLiters = Number(sysVolLiters);
     valLitersTotal.innerHTML = `${calcLiters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} <span class="unit">L</span>`;
@@ -171,15 +176,14 @@ function updateUI(telemetry) {
     valRssiQuality.className = 'rssi-quality-pill';
   }
 
-  // Date & Time formatting
+  // Date & Time formatting & ONLINE / OFFLINE Status check (limiar 20s)
   if (telemetry.received_at) {
     const receivedDate = new Date(telemetry.received_at);
     valReceivedTime.textContent = receivedDate.toLocaleTimeString('pt-BR');
     valReceivedDate.textContent = receivedDate.toLocaleDateString('pt-BR');
 
-    // Online check (<= 15s)
     const diffMs = Date.now() - receivedDate.getTime();
-    const isOnline = diffMs <= 15000;
+    const isOnline = diffMs <= 20000;
 
     if (isOnline) {
       statusBadge.className = 'status-indicator status-online';
@@ -198,13 +202,23 @@ function updateUI(telemetry) {
 
 async function fetchLatestTelemetry() {
   try {
-    fetchSystemSummary();
-    const response = await fetch('/api/telemetry/latest');
-    if (!response.ok) {
+    const [latestRes, summaryRes] = await Promise.all([
+      fetch('/api/telemetry/latest', { cache: 'no-store' }),
+      fetch('/api/telemetry/system-summary', { cache: 'no-store' })
+    ]);
+
+    if (summaryRes.ok) {
+      const summaryJson = await summaryRes.json();
+      if (summaryJson.ok) {
+        systemTotalsCache = summaryJson;
+      }
+    }
+
+    if (!latestRes.ok) {
       updateUI(null);
       return;
     }
-    const result = await response.json();
+    const result = await latestRes.json();
     if (result.ok && result.data) {
       updateUI(result.data);
     } else {
@@ -212,7 +226,6 @@ async function fetchLatestTelemetry() {
     }
   } catch (err) {
     console.error('Erro ao buscar dados:', err);
-    updateUI(null);
   }
 }
 
@@ -413,7 +426,7 @@ setInterval(updateRelativeTimeDisplay, 1000);
 
 async function fetchFlowSummary() {
   try {
-    const response = await fetch('/api/telemetry/flow-summary');
+    const response = await fetch('/api/telemetry/flow-summary', { cache: 'no-store' });
     if (!response.ok) return;
     const result = await response.json();
     if (!result.ok) return;
@@ -817,8 +830,8 @@ function updateSessionsUI(sessionsList, summaryData) {
 async function fetchFlowSessions() {
   try {
     const [resList, resSum] = await Promise.all([
-      fetch('/api/telemetry/flow-sessions?limit=50'),
-      fetch('/api/telemetry/flow-sessions/summary')
+      fetch('/api/telemetry/flow-sessions?limit=50', { cache: 'no-store' }),
+      fetch('/api/telemetry/flow-sessions/summary', { cache: 'no-store' })
     ]);
 
     let listData = [];
@@ -868,7 +881,7 @@ let currentPreviewCalculation = null;
 
 async function fetchCalibrationSession() {
   try {
-    const response = await fetch('/api/config/calibration/session');
+    const response = await fetch('/api/config/calibration/session', { cache: 'no-store' });
     if (!response.ok) return;
     const result = await response.json();
     if (result.ok) {
@@ -1068,7 +1081,7 @@ if (btnBackCalibration) {
 
 async function fetchTelemetryHistory() {
   try {
-    const response = await fetch('/api/telemetry/history?limit=100');
+    const response = await fetch('/api/telemetry/history?limit=100', { cache: 'no-store' });
     fetchFlowSummary();
     fetchFlowSessions();
     fetchCalibrationSession();
