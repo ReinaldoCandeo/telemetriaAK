@@ -9,6 +9,7 @@
 
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 
 // ========================================
 // CONFIGURACAO DO TESTE
@@ -17,8 +18,9 @@
 const char *WIFI_SSID = "fsp";
 const char *WIFI_PASSWORD = "fsp123456";
 
-const char *SERVER_HOST = "172.20.10.2";
-const uint16_t SERVER_PORT = 3000;
+// Substitua pelo domínio do seu projeto na Vercel (ex: "telemetria-agua.vercel.app")
+const char *SERVER_HOST = "telemetria-agua.vercel.app";
+const uint16_t SERVER_PORT = 443;
 
 const char *DEVICE_ID = "HIDRO-001";
 
@@ -60,27 +62,31 @@ unsigned long lastWifiAttemptTime = 0;
 bool wifiConectadoNotificado = false;
 
 // ========================================
-// FUNÇÃO DE ENVIO HTTP DE TELEMETRIA
+// FUNÇÃO DE ENVIO HTTPS DE TELEMETRIA
 // ========================================
 
 bool enviarTelemetria(int pulseDelta) {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[HTTP] Wi-Fi desconectado. Envio ignorado.");
+    Serial.println("[HTTPS] Wi-Fi desconectado. Envio ignorado.");
     return false;
   }
 
-  HTTPClient http;
-  String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) +
-               "/api/telemetry";
+  // 1. Cliente seguro TLS/SSL (Porta 443)
+  WiFiClientSecure client;
+  client.setInsecure(); // Ignora validação estrita de Root CA para evitar expiração de certificados
 
-  http.begin(url);
+  HTTPClient http;
+  String url = "https://" + String(SERVER_HOST) + "/api/telemetry";
+
+  // 2. Inicialização segura com o cliente TLS
+  http.begin(client, url);
   http.setTimeout(HTTP_TIMEOUT_MS);
   http.addHeader("Content-Type", "application/json");
 
   float litersTotal = pulseTotal * LITERS_PER_PULSE;
   int rssi = WiFi.RSSI();
 
-  // Montagem do JSON no formato esperado pela API HTTP
+  // Montagem do JSON no formato esperado pela API
   String payload = "{";
   payload += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
   payload += "\"pulse_total\":" + String(pulseTotal) + ",";
@@ -90,7 +96,7 @@ bool enviarTelemetria(int pulseDelta) {
   payload += "}";
 
   Serial.println("\n------------------------------------");
-  Serial.print("Enviando telemetria para ");
+  Serial.print("Enviando telemetria HTTPS para ");
   Serial.println(url);
   Serial.println("Payload: " + payload);
 
@@ -106,7 +112,7 @@ bool enviarTelemetria(int pulseDelta) {
     http.end();
     return true;
   } else {
-    Serial.print("Erro no envio HTTP: ");
+    Serial.print("Erro no envio HTTPS: ");
     Serial.println(http.errorToString(httpResponseCode));
     Serial.println("HTTP ERROR - Contador preservado sem alterações.");
     Serial.println("------------------------------------\n");
@@ -130,10 +136,8 @@ void verificarWifi() {
       Serial.print("RSSI: ");
       Serial.print(WiFi.RSSI());
       Serial.println(" dBm");
-      Serial.print("Servidor: http://");
+      Serial.print("Servidor: https://");
       Serial.print(SERVER_HOST);
-      Serial.print(":");
-      Serial.print(SERVER_PORT);
       Serial.println("/api/telemetry\n");
       wifiConectadoNotificado = true;
     }
@@ -174,10 +178,8 @@ void setup() {
   Serial.println(PINO_PULSO);
   Serial.print("LED: GPIO");
   Serial.println(PINO_LED);
-  Serial.print("Servidor: ");
-  Serial.print(SERVER_HOST);
-  Serial.print(":");
-  Serial.println(SERVER_PORT);
+  Serial.print("Servidor: https://");
+  Serial.println(SERVER_HOST);
   Serial.println("Aguardando Wi-Fi...");
 
   WiFi.mode(WIFI_STA);
