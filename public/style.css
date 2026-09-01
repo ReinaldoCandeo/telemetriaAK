@@ -1310,3 +1310,118 @@ body {
   font-weight: 700;
   color: var(--text-heading);
 }
+
+/* ==========================================================================
+   7. OTIMIZAÇÕES MOBILE-FIRST SCADA (SMARTPHONES E TABLETS DE CAMPO)
+   ========================================================================== */
+@media (max-width: 640px) {
+  body {
+    padding: 0.5rem 0.25rem;
+  }
+
+  .app-container {
+    border-radius: 8px;
+    border-left: none;
+    border-right: none;
+  }
+
+  .scada-header {
+    padding: 1rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .header-brand {
+    width: 100%;
+  }
+
+  .header-title-row h1 {
+    font-size: 1.1rem;
+  }
+
+  .header-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .main-content {
+    padding: 0.85rem 0.65rem;
+    gap: 1rem;
+  }
+
+  .scada-top-grid {
+    grid-template-columns: 1fr;
+    gap: 0.85rem;
+  }
+
+  .scada-value-hero {
+    font-size: 1.65rem;
+  }
+
+  .scada-tech-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    padding: 0.75rem;
+  }
+
+  .scada-chart-panel {
+    padding: 0.85rem 0.65rem;
+  }
+
+  .chart-header-status-group {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  /* Tap targets confortáveis para touch */
+  .scada-btn {
+    min-height: 46px;
+    padding: 0.75rem 1.25rem;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .calib-btn-row {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .calib-metrics-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .scada-input {
+    min-height: 46px;
+    font-size: 1rem;
+  }
+
+  .manual-calib-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .scada-accordion-summary {
+    padding: 0.85rem 1rem;
+    min-height: 48px;
+  }
+
+  .scada-footer {
+    padding: 0.85rem 1rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .footer-info-items {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+}
+
