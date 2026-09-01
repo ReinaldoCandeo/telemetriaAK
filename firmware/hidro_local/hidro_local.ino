@@ -19,7 +19,7 @@ const char *WIFI_SSID = "fsp";
 const char *WIFI_PASSWORD = "fsp123456";
 
 // Substitua pelo domínio do seu projeto na Vercel (ex: "telemetria-agua.vercel.app")
-const char *SERVER_HOST = "telemetria-agua.vercel.app";
+const char *SERVER_HOST = "telemetriaak.vercel.app";
 const uint16_t SERVER_PORT = 443;
 
 const char *DEVICE_ID = "HIDRO-001";
