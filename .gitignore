@@ -1,0 +1,9 @@
+# Dependências do Node
+node_modules/
+
+# Arquivos de ambiente (senhas)
+.env
+
+# Banco de dados local (para não subir seus testes de bancada)
+data/history.json
+data/telemetry.json

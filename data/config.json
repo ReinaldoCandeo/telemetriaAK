@@ -1,0 +1,10 @@
+{
+  "devices": {
+    "HIDRO-001": {
+      "liters_per_pulse": 2.9411764705882355,
+      "calibration_status": "calibrated",
+      "calibrated_at": "2026-08-27T18:56:03.454Z",
+      "calibration_session": null
+    }
+  }
+}

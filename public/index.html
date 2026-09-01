@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Telemetria Hídrica - Monitoramento Caixa de Água</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- 1. CABEÇALHO SCADA INDUSTRIAL -->
+    <header class="scada-header">
+      <div class="header-brand">
+        <div class="scada-brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" fill="url(#scada-water-grad)" stroke="#0284c7" stroke-width="1.75" stroke-linejoin="round"/>
+            <defs>
+              <linearGradient id="scada-water-grad" x1="12" y1="2.69" x2="12" y2="20.69" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#38bdf8"/>
+                <stop offset="1" stop-color="#0284c7"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="header-info">
+          <div class="header-title-row">
+            <h1>MONITORAMENTO CAIXA DE ÁGUA</h1>
+            <span class="scada-tag">SISTEMA SUPERVISÓRIO</span>
+          </div>
+          <p class="header-sub">Supervisão Contínua de Nível, Fluxo e Telemetria Hídrica</p>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <div class="device-pill">
+          <span class="device-pill-label">DISPOSITIVO</span>
+          <span class="device-pill-id" id="header-device-id">HIDRO-001</span>
+        </div>
+        <div class="status-indicator status-offline" id="status-badge">
+          <span class="status-dot"></span>
+          <span id="status-text">OFFLINE</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- TOAST DE NOTIFICAÇÃO DE PULSO EM TEMPO REAL -->
+      <div id="pulse-toast" class="pulse-toast hidden">
+        <span class="pulse-icon">⚡</span>
+        <span class="pulse-text">PULSO DE TELEMETRIA DETECTADO E REGISTRADO</span>
+      </div>
+
+      <!-- ESTADO 1: AGUARDANDO PRIMEIRA TELEMETRIA -->
+      <div id="waiting-view" class="scada-card waiting-container">
+        <div class="waiting-spinner">
+          <div class="spinner-ring"></div>
+          <span class="waiting-icon">⏳</span>
+        </div>
+        <div>
+          <h2>Aguardando primeira telemetria...</h2>
+          <p class="waiting-sub">O sistema está pronto na porta 3000 (/api/telemetry). Aguardando envio do ESP32.</p>
+        </div>
+      </div>
+
+      <!-- ESTADO 2: DASHBOARD SCADA ATIVO -->
+      <div id="dashboard-view" class="dashboard-wrapper hidden">
+        
+        <!-- GRID DE CARDS SUPERIORES (3 COLUNAS SCADA) -->
+        <div class="scada-top-grid">
+          
+          <!-- CARD 1: VOLUME MEDIDO DA CAIXA D'ÁGUA -->
+          <div class="scada-card card-volume">
+            <div class="scada-card-header">
+              <div class="card-header-left">
+                <span class="card-header-icon">🚰</span>
+                <span class="card-title">VOLUME MEDIDO</span>
+              </div>
+              <span class="scada-badge badge-blue" id="val-liters-badge">Calibração Pendente</span>
+            </div>
+            <div class="scada-card-body">
+              <div class="scada-value-hero" id="val-liters-total">CALIBRAÇÃO PENDENTE</div>
+              <div class="scada-card-sub" id="val-liters-sub">Volume acumulado no sistema • 0 pulsos acumulados</div>
+            </div>
+          </div>
+
+          <!-- CARD 2: VAZÃO RECENTE INSTANTÂNEA -->
+          <div class="scada-card card-flow">
+            <div class="scada-card-header">
+              <div class="card-header-left">
+                <span class="card-header-icon">🌊</span>
+                <span class="card-title">VAZÃO INSTANTÂNEA</span>
+              </div>
+              <span class="scada-badge badge-cyan" id="val-flow-badge">Último Intervalo</span>
+            </div>
+            <div class="scada-card-body">
+              <div class="scada-value-hero" id="val-flow-recent">-- <span class="unit">L/min</span></div>
+              <div class="flow-m3h-tag" id="val-flow-m3h">-- m³/h</div>
+              <div class="scada-card-sub" id="val-flow-recent-sub">Calculada pelo intervalo mais recente entre pulsos.</div>
+            </div>
+          </div>
+
+          <!-- CARD 3: RESUMO TÉCNICO & TELEMETRIA ESP32 -->
+          <div class="scada-card card-technical">
+            <div class="scada-card-header">
+              <div class="card-header-left">
+                <span class="card-header-icon">📡</span>
+                <span class="card-title">TELEMETRIA & STATUS</span>
+              </div>
+              <span class="scada-badge badge-slate" id="val-calib-badge">Pendente</span>
+            </div>
+            <div class="scada-card-body scada-tech-grid">
+              <div class="tech-item">
+                <span class="tech-label">PULSOS ACUMULADOS</span>
+                <span class="tech-val" id="val-pulse-total">0</span>
+              </div>
+              <div class="tech-item">
+                <span class="tech-label">SINAL WI-FI</span>
+                <div class="tech-val-row">
+                  <span class="tech-val" id="val-rssi">-- dBm</span>
+                  <span class="rssi-quality-pill" id="val-rssi-quality">Sem dados</span>
+                </div>
+              </div>
+              <div class="tech-item">
+                <span class="tech-label">ÚLTIMO RECEBIMENTO</span>
+                <span class="tech-val font-mono" id="val-received-time">--:--:--</span>
+              </div>
+              <div class="tech-item">
+                <span class="tech-label">CALIBRAÇÃO</span>
+                <span class="tech-val status-text-highlight" id="val-calib-status-text">PENDENTE</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- PAINEL CENTRAL DE OPERAÇÃO: TENDÊNCIA VAZÃO (24h) -->
+        <section class="scada-card scada-chart-panel">
+          <div class="scada-chart-header">
+            <div class="chart-header-title-group">
+              <div class="chart-title-icon">📈</div>
+              <div>
+                <h3 class="chart-title">TENDÊNCIA VAZÃO (24h)</h3>
+                <p class="chart-subtitle">Histórico de Vazão em L/min Calculado Inter-Pulsos</p>
+              </div>
+            </div>
+            
+            <div class="chart-header-status-group">
+              <div class="session-status-badge status-offline" id="session-status-badge">
+                <span class="status-dot"></span>
+                <span id="session-status-text">SEM PASSAGEM</span>
+              </div>
+              <span class="flow-relative-time" id="val-last-pulse-relative">Nenhum pulso registrado</span>
+            </div>
+          </div>
+
+          <!-- Alerta de Calibração Pendente para o Gráfico -->
+          <div class="flow-calibration-notice hidden" id="flow-calib-notice">
+            <span class="notice-icon">💡</span>
+            <span>Defina a calibração do hidrômetro para habilitar a curva precisa em L/min.</span>
+          </div>
+
+          <!-- Container do Gráfico SVG -->
+          <div class="chart-wrapper" id="chart-flow-wrapper">
+            <div id="chart-flow-empty" class="chart-empty">
+              <span class="empty-icon">💧</span>
+              <span class="empty-title">AGUARDANDO DADOS DE VAZÃO</span>
+              <span class="empty-sub">A vazão será calculada e desenhada após a calibração e a captura de pelo menos dois pulsos válidos.</span>
+            </div>
+            <svg id="chart-flow-svg" class="chart-svg hidden" viewBox="0 0 500 180" preserveAspectRatio="none">
+              <!-- Desenhado dinamicamente via app.js -->
+            </svg>
+          </div>
+        </section>
+
+        <!-- ELEMENTOS AUXILIARES OCULTOS PARA COMPATIBILIDADE COM O APP.JS -->
+        <div class="hidden-compat hidden">
+          <span id="val-pulse-delta"></span>
+          <span id="val-received-date"></span>
+          <span id="val-device-id"></span>
+          <span id="val-calib-factor-sub"></span>
+        </div>
+
+        <!-- SEÇÕES DETALHADAS EM SANFONA SCADA (<details>) -->
+        <div class="scada-accordion-group">
+          
+          <!-- GAVETA 1: DETALHES DE MONITORAMENTO E CURVAS SECUNDÁRIAS -->
+          <details class="scada-accordion">
+            <summary class="scada-accordion-summary">
+              <div class="summary-left">
+                <span class="summary-icon">📊</span>
+                <div>
+                  <span class="summary-title">Detalhes de Monitoramento e Diagnóstico</span>
+                  <span class="summary-desc">Vazão média, pico registrado, contador na RAM do ESP32 e curvas de evolução</span>
+                </div>
+              </div>
+              <span class="summary-arrow">▼</span>
+            </summary>
+            <div class="scada-accordion-content">
+              
+              <div class="scada-mini-kpi-grid">
+                <div class="scada-mini-card">
+                  <span class="mini-label">VAZÃO MÉDIA</span>
+                  <div class="mini-val" id="val-flow-avg">-- <span class="unit">L/min</span></div>
+                  <span class="mini-sub">Média das amostras válidas</span>
+                </div>
+
+                <div class="scada-mini-card">
+                  <span class="mini-label">PICO DE VAZÃO</span>
+                  <div class="mini-val text-blue" id="val-flow-max">-- <span class="unit">L/min</span></div>
+                  <span class="mini-sub">Maior valor computado</span>
+                </div>
+
+                <div class="scada-mini-card">
+                  <span class="mini-label">CONTADOR ESP32 (RAM)</span>
+                  <div class="mini-val font-mono" id="val-esp-pulse-count">0</div>
+                  <span class="mini-sub">Contador local resetável da placa</span>
+                </div>
+
+                <div class="scada-mini-card">
+                  <span class="mini-label">DATA/HORA DO ÚLTIMO PULSO</span>
+                  <div class="mini-val font-mono text-sm" id="val-last-pulse-time">--:--:--</div>
+                  <span class="mini-sub" id="val-last-pulse-date">--/--/----</span>
+                </div>
+              </div>
+
+              <!-- Gráficos Secundários -->
+              <div class="scada-secondary-charts-grid">
+                <!-- Gráfico de Evolução do Volume -->
+                <div class="scada-subchart-card">
+                  <div class="subchart-header">
+                    <div>
+                      <h4 class="subchart-title">EVOLUÇÃO DO VOLUME</h4>
+                      <p class="subchart-subtitle" id="chart-volume-subtitle">Progressão acumulada do volume medido ao longo do tempo</p>
+                    </div>
+                    <span class="scada-badge badge-slate">Curva Acumulada</span>
+                  </div>
+                  <div class="chart-wrapper subchart-wrapper" id="chart-volume-wrapper">
+                    <div id="chart-volume-empty" class="chart-empty">
+                      <span class="empty-icon">📈</span>
+                      <span>Aguardando dados de volume...</span>
+                    </div>
+                    <svg id="chart-volume-svg" class="chart-svg hidden" viewBox="0 0 500 180" preserveAspectRatio="none"></svg>
+                  </div>
+                </div>
+
+                <!-- Gráfico de Pulsos Recentes -->
+                <div class="scada-subchart-card">
+                  <div class="subchart-header">
+                    <div>
+                      <h4 class="subchart-title">PULSOS RECENTES</h4>
+                      <p class="subchart-subtitle">Intensidade e variação de pulsos por transmissão</p>
+                    </div>
+                    <span class="scada-badge badge-slate">Atividade</span>
+                  </div>
+                  <div class="chart-wrapper subchart-wrapper" id="chart-pulses-wrapper">
+                    <div id="chart-pulses-empty" class="chart-empty">
+                      <span class="empty-icon">📊</span>
+                      <span>Aguardando eventos de pulso...</span>
+                    </div>
+                    <svg id="chart-pulses-svg" class="chart-svg hidden" viewBox="0 0 500 180" preserveAspectRatio="none"></svg>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </details>
+
+          <!-- GAVETA 2: HISTÓRICO DE PASSAGENS (SESSÕES DE FLUXO) -->
+          <details class="scada-accordion">
+            <summary class="scada-accordion-summary">
+              <div class="summary-left">
+                <span class="summary-icon">🌊</span>
+                <div>
+                  <span class="summary-title">Histórico de Passagens de Água</span>
+                  <span class="summary-desc">Sessões contínuas de fluxo de água agrupadas por inatividade (gap > 60s)</span>
+                </div>
+              </div>
+              <span class="summary-arrow">▼</span>
+            </summary>
+            <div class="scada-accordion-content">
+              
+              <!-- Card da Sessão Mais Recente -->
+              <div class="scada-session-hero" id="card-session-hero">
+                <div class="session-hero-header">
+                  <span class="session-hero-badge-title">SESSÃO MAIS RECENTE</span>
+                  <span class="scada-badge badge-cyan" id="val-session-badge">Interpretação do Fluxo</span>
+                </div>
+                <div class="session-hero-title" id="val-session-title">SEM PASSAGEM DETECTADA NO MOMENTO</div>
+                <p class="session-hero-sub" id="val-session-sub">Nenhum pulso registrado nos últimos 60 segundos.</p>
+
+                <div class="session-metrics-grid" id="session-details-grid">
+                  <div class="session-metric">
+                    <span class="sm-label">INÍCIO DA PASSAGEM</span>
+                    <span class="sm-val" id="sess-val-started">--:--:--</span>
+                  </div>
+                  <div class="session-metric">
+                    <span class="sm-label">ÚLTIMO PULSO</span>
+                    <span class="sm-val" id="sess-val-last-pulse">--:--:--</span>
+                  </div>
+                  <div class="session-metric">
+                    <span class="sm-label">DURAÇÃO</span>
+                    <span class="sm-val" id="sess-val-duration">--</span>
+                  </div>
+                  <div class="session-metric">
+                    <span class="sm-label">PULSOS DA PASSAGEM</span>
+                    <span class="sm-val" id="sess-val-pulses">0</span>
+                  </div>
+                  <div class="session-metric">
+                    <span class="sm-label">VOLUME MEDIDO</span>
+                    <span class="sm-val text-blue" id="sess-val-volume">--</span>
+                  </div>
+                  <div class="session-metric">
+                    <span class="sm-label">VAZÃO MÉDIA</span>
+                    <span class="sm-val text-cyan" id="sess-val-avg-flow">--</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tabela de Sessões -->
+              <div class="scada-table-container">
+                <table class="scada-table">
+                  <thead>
+                    <tr>
+                      <th>SESSÃO</th>
+                      <th>DATA</th>
+                      <th>INÍCIO</th>
+                      <th>ÚLTIMO PULSO / FIM</th>
+                      <th>DURAÇÃO</th>
+                      <th>PULSOS</th>
+                      <th>VOLUME MEDIDO</th>
+                      <th>VAZÃO MÉDIA</th>
+                      <th>PICO</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sessions-table-body"></tbody>
+                </table>
+                <div id="sessions-empty-state" class="table-empty-state">
+                  <span>Nenhuma sessão de passagem de água registrada até o momento.</span>
+                </div>
+              </div>
+
+            </div>
+          </details>
+
+          <!-- GAVETA 3: HISTÓRICO DETALHADO DE PULSOS BRUTOS -->
+          <details class="scada-accordion">
+            <summary class="scada-accordion-summary">
+              <div class="summary-left">
+                <span class="summary-icon">📜</span>
+                <div>
+                  <span class="summary-title">Histórico Detalhado de Pulsos e Eventos</span>
+                  <span class="summary-desc">Registros brutos e eventos individuais gravados pelo servidor</span>
+                </div>
+              </div>
+              <span class="summary-arrow">▼</span>
+            </summary>
+            <div class="scada-accordion-content">
+              
+              <div class="scada-history-stats">
+                <div class="stat-box">
+                  <span class="stat-label">REGISTROS DE PULSO</span>
+                  <span class="stat-value font-mono" id="hist-count">0</span>
+                </div>
+                <div class="stat-box">
+                  <span class="stat-label">SOMA DE PULSOS</span>
+                  <span class="stat-value font-mono" id="hist-pulse-sum">0</span>
+                </div>
+                <div class="stat-box">
+                  <span class="stat-label">ÚLTIMO REGISTRO</span>
+                  <span class="stat-value font-mono text-sm" id="hist-last-time">--:--:--</span>
+                  <span class="stat-sub font-mono" id="hist-last-date">--/--/----</span>
+                </div>
+              </div>
+
+              <div class="scada-table-container">
+                <table class="scada-table">
+                  <thead>
+                    <tr>
+                      <th>DATA</th>
+                      <th>HORA</th>
+                      <th>EVENTO</th>
+                      <th>PULSOS</th>
+                      <th>INTERVALO</th>
+                      <th>VAZÃO</th>
+                      <th>TOTAL</th>
+                      <th>VOLUME CALCULADO</th>
+                      <th>SINAL WI-FI</th>
+                    </tr>
+                  </thead>
+                  <tbody id="history-table-body"></tbody>
+                </table>
+                <div id="history-empty-state" class="table-empty-state">
+                  <span>Nenhum pulso registrado neste histórico.</span>
+                </div>
+              </div>
+
+            </div>
+          </details>
+
+          <!-- GAVETA 4: CALIBRAÇÃO DO HIDRÔMETRO (WIZARD GUIADO + MANUAL) -->
+          <details class="scada-accordion" open>
+            <summary class="scada-accordion-summary">
+              <div class="summary-left">
+                <span class="summary-icon">⚙️</span>
+                <div>
+                  <span class="summary-title">Calibração do Hidrômetro</span>
+                  <span class="summary-desc">Assistente de calibração semiautomática orientada ou ajuste manual de fator</span>
+                </div>
+              </div>
+              <span class="summary-arrow">▼</span>
+            </summary>
+            <div class="scada-accordion-content">
+              
+              <div class="calib-panel">
+                <div class="calib-panel-header">
+                  <div>
+                    <h4 class="calib-heading">AJUSTE DE CALIBRAÇÃO</h4>
+                    <p class="calib-subtext" id="calib-factor-text">Calibração pendente (não configurado)</p>
+                  </div>
+                  <span class="status-indicator status-offline" id="calib-status-badge">
+                    <span class="status-dot"></span>
+                    <span id="calib-status-text">CALIBRAÇÃO PENDENTE</span>
+                  </span>
+                </div>
+
+                <!-- FLUXO SEMIAUTOMÁTICO DINÂMICO -->
+                <div id="calib-semiauto-container">
+                  
+                  <!-- ESTADO A: IDLE -->
+                  <div id="calib-state-idle" class="calib-state-box">
+                    <h5 class="calib-state-title">CALIBRAÇÃO SEMIAUTOMÁTICA ORIENTADA</h5>
+                    <p class="calib-instructions">
+                      O sistema iniciará a contagem dos pulsos gerados durante o teste. Ao finalizar a passagem de água, informe o volume real medido na caixa d'água para calcular o fator exato (Litros/Pulso).
+                    </p>
+                    <div class="calib-btn-row">
+                      <button id="btn-start-calibration" class="scada-btn scada-btn-primary">INICIAR CALIBRAÇÃO</button>
+                    </div>
+                  </div>
+
+                  <!-- ESTADO B: ATIVO -->
+                  <div id="calib-state-active" class="calib-state-box hidden">
+                    <div class="calib-active-alert">
+                      <span class="pulse-icon">⚡</span>
+                      <div>
+                        <strong>CALIBRAÇÃO EM ANDAMENTO</strong>
+                        <p>Abra a válvula ou ligue a bomba e deixe a água passar pelo hidrômetro.</p>
+                      </div>
+                    </div>
+
+                    <div class="calib-metrics-row">
+                      <div class="calib-metric-col">
+                        <span class="c-label">PULSOS NO INÍCIO</span>
+                        <span class="c-val font-mono" id="calib-val-start-pulses">0</span>
+                      </div>
+                      <div class="calib-metric-col">
+                        <span class="c-label">PULSOS ATUAIS</span>
+                        <span class="c-val font-mono" id="calib-val-current-pulses">0</span>
+                      </div>
+                      <div class="calib-metric-col">
+                        <span class="c-label">PULSOS DETECTADOS</span>
+                        <span class="c-val font-mono text-cyan" id="calib-val-diff-pulses">0</span>
+                      </div>
+                    </div>
+
+                    <div class="calib-form-group">
+                      <label for="input-known-volume" class="form-label">VOLUME REAL QUE PASSOU (LITROS)</label>
+                      <div class="input-with-unit">
+                        <input type="number" id="input-known-volume" placeholder="Ex: 1000" step="any" min="0.001" class="scada-input">
+                        <span class="input-unit">L</span>
+                      </div>
+                    </div>
+
+                    <div class="calib-btn-row">
+                      <button id="btn-calculate-calibration" class="scada-btn scada-btn-primary">CALCULAR FATOR</button>
+                      <button id="btn-cancel-calibration" class="scada-btn scada-btn-danger">CANCELAR TESTE</button>
+                    </div>
+                  </div>
+
+                  <!-- ESTADO C: PRÉVIA -->
+                  <div id="calib-state-preview" class="calib-state-box hidden">
+                    <div class="calib-preview-box">
+                      <h5 class="preview-title">RESULTADO CALCULADO DA CALIBRAÇÃO</h5>
+                      <div class="preview-grid">
+                        <div class="prev-item">
+                          <span class="p-label">VOLUME INFORMADO</span>
+                          <span class="p-val" id="prev-val-volume">-- L</span>
+                        </div>
+                        <div class="prev-item">
+                          <span class="p-label">PULSOS DETECTADOS</span>
+                          <span class="p-val font-mono" id="prev-val-pulses">--</span>
+                        </div>
+                        <div class="prev-item prev-item-highlight">
+                          <span class="p-label">FATOR DE CONVERSÃO CALCULADO</span>
+                          <span class="p-val-large font-mono" id="prev-val-factor">1 PULSO = -- L</span>
+                          <span class="p-formula font-mono" id="prev-val-formula">-- L ÷ -- pulsos = -- L/pulso</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="calib-btn-row">
+                      <button id="btn-confirm-calibration" class="scada-btn scada-btn-success">CONFIRMAR E SALVAR</button>
+                      <button id="btn-back-calibration" class="scada-btn scada-btn-secondary">VOLTAR</button>
+                    </div>
+                  </div>
+
+                </div>
+
+                <!-- Banner de Erro -->
+                <div id="calib-error-message" class="calib-error-banner hidden"></div>
+
+                <!-- AJUSTE MANUAL AVANÇADO (FALLBACK) -->
+                <details class="scada-sub-accordion">
+                  <summary class="scada-sub-accordion-summary">⚙️ Configuração Manual Avançada (Fator Direto)</summary>
+                  <div class="sub-accordion-content">
+                    <div class="manual-calib-row">
+                      <div class="calib-form-group">
+                        <label for="input-liters-per-pulse" class="form-label">LITROS POR PULSO</label>
+                        <div class="input-with-unit">
+                          <input type="number" id="input-liters-per-pulse" placeholder="Ex: 10" step="any" min="0.001" class="scada-input">
+                          <span class="input-unit">L / pulso</span>
+                        </div>
+                      </div>
+                      <button id="btn-save-calibration" class="scada-btn scada-btn-primary">SALVAR FATOR MANUAL</button>
+                    </div>
+                    <div class="manual-calib-row margin-top-md" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--scada-border-light);">
+                      <button id="btn-factory-reset" class="scada-btn scada-btn-danger">ZERAR DADOS DO SISTEMA (HARD RESET)</button>
+                    </div>
+                  </div>
+                </details>
+
+                <p class="calib-footer-note">
+                  💡 Os pulsos físicos registrados durante a calibração fazem parte do histórico persistente do sistema.
+                </p>
+              </div>
+
+            </div>
+          </details>
+
+        </div>
+      </div>
+    </main>
+
+    <!-- RODAPÉ SCADA INSTITUCIONAL -->
+    <footer class="scada-footer">
+      <div class="footer-status-pill">
+        <span class="pill-bullet"></span>
+        <span>Conexão Local HTTP</span>
+      </div>
+      <div class="footer-info-items">
+        <span class="footer-item">Porta: 3000</span>
+        <span class="footer-item">Polling: 1.000ms</span>
+        <span class="footer-item footer-item-highlight">Painel SCADA de Telemetria Hídrica</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
