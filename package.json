@@ -1,15 +1,8 @@
 {
-  "name": "telemetria-agua-local",
+  "name": "telemetria-scada",
   "version": "1.0.0",
-  "description": "Protótipo local de telemetria hídrica",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
+  "private": true,
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  }
 }
