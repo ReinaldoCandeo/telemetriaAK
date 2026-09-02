@@ -426,8 +426,8 @@
                   </span>
                 </div>
 
-                <!-- FLUXO SEMIAUTOMÁTICO DINÂMICO -->
-                <div id="calib-semiauto-container">
+                <!-- FLUXO SEMIAUTOMÁTICO DINÂMICO (OCULTO TEMPORARIAMENTE ATÉ IMPLEMENTAÇÃO DO BACKEND) -->
+                <div id="calib-semiauto-container" class="hidden">
                   
                   <!-- ESTADO A: IDLE -->
                   <div id="calib-state-idle" class="calib-state-box">
@@ -511,8 +511,8 @@
                 <!-- Banner de Erro -->
                 <div id="calib-error-message" class="calib-error-banner hidden"></div>
 
-                <!-- AJUSTE MANUAL AVANÇADO (FALLBACK) -->
-                <details class="scada-sub-accordion">
+                <!-- AJUSTE MANUAL AVANÇADO (FATOR DIRETO) -->
+                <details class="scada-sub-accordion" open>
                   <summary class="scada-sub-accordion-summary">⚙️ Configuração Manual Avançada (Fator Direto)</summary>
                   <div class="sub-accordion-content">
                     <div class="manual-calib-row">
