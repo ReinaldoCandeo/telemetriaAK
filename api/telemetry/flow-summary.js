@@ -32,11 +32,12 @@ export default async function handler(req, res) {
       calibrated_at: devData?.calibrated_at || null
     };
 
-    // 2. Buscar último evento
+    // 2. Buscar último evento de pulso físico
     const { data: lastEvents } = await supabase
       .from('telemetry_events')
       .select('*')
       .eq('device_id', deviceId)
+      .eq('type', 'pulse')
       .order('received_at', { ascending: false })
       .limit(1);
 
