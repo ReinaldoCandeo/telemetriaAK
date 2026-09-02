@@ -179,8 +179,8 @@ function updateUI(telemetry) {
   // Date & Time formatting & ONLINE / OFFLINE Status check (limiar 20s)
   if (telemetry.received_at) {
     const receivedDate = new Date(telemetry.received_at);
-    valReceivedTime.textContent = receivedDate.toLocaleTimeString('pt-BR');
-    valReceivedDate.textContent = receivedDate.toLocaleDateString('pt-BR');
+    valReceivedTime.textContent = receivedDate.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    valReceivedDate.textContent = receivedDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 
     const diffMs = Date.now() - receivedDate.getTime();
     const isOnline = diffMs <= 20000;
@@ -477,8 +477,8 @@ async function fetchFlowSummary() {
     // Last Pulse Card
     if (last_pulse_at) {
       const d = new Date(last_pulse_at);
-      if (valLastPulseTime) valLastPulseTime.textContent = d.toLocaleTimeString('pt-BR');
-      if (valLastPulseDate) valLastPulseDate.textContent = d.toLocaleDateString('pt-BR');
+      if (valLastPulseTime) valLastPulseTime.textContent = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      if (valLastPulseDate) valLastPulseDate.textContent = d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
       if (valLastPulseRelative) valLastPulseRelative.textContent = formatRelativeTime(last_pulse_at);
     } else {
       if (valLastPulseTime) valLastPulseTime.textContent = '--:--:--';
@@ -523,7 +523,7 @@ function renderFlowChart(historyList) {
       : width / 2;
     const y = height - padY - ((val - minVal) / valRange) * (height - 2 * padY);
     const recDate = chronoEvents[idx].received_at ? new Date(chronoEvents[idx].received_at) : null;
-    const timeLabel = recDate ? recDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+    const timeLabel = recDate ? recDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' }) : '';
     const isAverage = chronoEvents[idx].flow_type === 'interval_average';
     return { x, y, val, timeLabel, isAverage, m3h: chronoEvents[idx].flow_m3h };
   });
@@ -602,8 +602,8 @@ function updateHistoryUI(historyList) {
 
   if (pulseEvents.length > 0 && pulseEvents[0].received_at) {
     const lastDate = new Date(pulseEvents[0].received_at);
-    if (histLastTime) histLastTime.textContent = lastDate.toLocaleTimeString('pt-BR');
-    if (histLastDate) histLastDate.textContent = lastDate.toLocaleDateString('pt-BR');
+    if (histLastTime) histLastTime.textContent = lastDate.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    if (histLastDate) histLastDate.textContent = lastDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
   } else {
     if (histLastTime) histLastTime.textContent = '--:--:--';
     if (histLastDate) histLastDate.textContent = '--/--/----';
@@ -613,8 +613,8 @@ function updateHistoryUI(historyList) {
   if (historyTableBody) {
     const rowsHtml = historyList.map(item => {
       const recDate = item.received_at ? new Date(item.received_at) : null;
-      const dateStr = recDate ? recDate.toLocaleDateString('pt-BR') : '--';
-      const timeStr = recDate ? recDate.toLocaleTimeString('pt-BR') : '--';
+      const dateStr = recDate ? recDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '--';
+      const timeStr = recDate ? recDate.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '--';
 
       let eventBadgeHtml = '';
       let pulseDeltaStr = '--';
@@ -726,8 +726,8 @@ function updateSessionsUI(sessionsList, summaryData) {
     if (valSessionSub) valSessionSub.textContent = 'Fluxo de água ativo e registrando pulsos no hidrômetro.';
     if (valSessionBadge) valSessionBadge.textContent = 'Sessão Ativa';
 
-    if (sessValStarted) sessValStarted.textContent = new Date(latestSession.started_at).toLocaleTimeString('pt-BR');
-    if (sessValLastPulse) sessValLastPulse.textContent = new Date(latestSession.last_pulse_at).toLocaleTimeString('pt-BR');
+    if (sessValStarted) sessValStarted.textContent = new Date(latestSession.started_at).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    if (sessValLastPulse) sessValLastPulse.textContent = new Date(latestSession.last_pulse_at).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
     if (sessValDuration) sessValDuration.textContent = formatDuration(latestSession.duration_seconds);
     if (sessValPulses) sessValPulses.textContent = `${latestSession.pulse_count} pulsos (${latestSession.pulse_events} envios)`;
 
@@ -750,10 +750,10 @@ function updateSessionsUI(sessionsList, summaryData) {
 
     if (latestSession) {
       const endD = new Date(latestSession.last_pulse_at);
-      if (valSessionSub) valSessionSub.textContent = `Última passagem registrada em ${endD.toLocaleDateString('pt-BR')} às ${endD.toLocaleTimeString('pt-BR')}.`;
+      if (valSessionSub) valSessionSub.textContent = `Última passagem registrada em ${endD.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })} às ${endD.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.`;
       if (valSessionBadge) valSessionBadge.textContent = 'Última Sessão';
-      if (sessValStarted) sessValStarted.textContent = new Date(latestSession.started_at).toLocaleTimeString('pt-BR');
-      if (sessValLastPulse) sessValLastPulse.textContent = endD.toLocaleTimeString('pt-BR');
+      if (sessValStarted) sessValStarted.textContent = new Date(latestSession.started_at).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      if (sessValLastPulse) sessValLastPulse.textContent = endD.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
       if (sessValDuration) sessValDuration.textContent = formatDuration(latestSession.duration_seconds);
       if (sessValPulses) sessValPulses.textContent = `${latestSession.pulse_count} pulsos`;
 
@@ -792,14 +792,14 @@ function updateSessionsUI(sessionsList, summaryData) {
 
     const rowsHtml = sessionsList.map(sess => {
       const startD = new Date(sess.started_at);
-      const dateStr = startD.toLocaleDateString('pt-BR');
-      const startTimeStr = startD.toLocaleTimeString('pt-BR');
+      const dateStr = startD.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      const startTimeStr = startD.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 
       let lastPulseOrEndStr = '--';
       if (sess.status === 'open') {
         lastPulseOrEndStr = `<span class="badge-event badge-session-open">EM ANDAMENTO</span>`;
       } else if (sess.last_pulse_at) {
-        lastPulseOrEndStr = new Date(sess.last_pulse_at).toLocaleTimeString('pt-BR');
+        lastPulseOrEndStr = new Date(sess.last_pulse_at).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
       }
 
       const durationStr = formatDuration(sess.duration_seconds);
@@ -909,7 +909,7 @@ function updateCalibrationSessionUI(session) {
   showCalibState('active');
 
   if (calibValStartedAt && session.started_at) {
-    calibValStartedAt.textContent = new Date(session.started_at).toLocaleTimeString('pt-BR');
+    calibValStartedAt.textContent = new Date(session.started_at).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
   }
   if (calibValStartPulses) {
     calibValStartPulses.textContent = (session.start_system_pulse_total || 0).toLocaleString('pt-BR');
