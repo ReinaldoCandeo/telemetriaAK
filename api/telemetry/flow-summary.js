@@ -32,14 +32,16 @@ export default async function handler(req, res) {
       calibrated_at: devData?.calibrated_at || null
     };
 
-    // 2. Buscar os dois últimos eventos de pulso físico
+    const isCalibrated = calib.status === 'calibrated' && typeof calib.liters_per_pulse === 'number' && calib.liters_per_pulse > 0;
+
+    // 2. Buscar janela recente de eventos de pulso físico (sem heartbeats)
     const { data: pulseEvents, error: queryError } = await supabase
       .from('telemetry_events')
       .select('*')
       .eq('device_id', deviceId)
       .eq('type', 'pulse')
       .order('received_at', { ascending: false })
-      .limit(2);
+      .limit(50);
 
     if (queryError) {
       console.error('Erro ao consultar eventos de pulso no Supabase:', queryError);
@@ -52,16 +54,9 @@ export default async function handler(req, res) {
     let latestFlowLpm = null;
     let latestFlowM3h = null;
     let intervalSeconds = null;
-    let samples = 0;
 
-    // 3. Condições estritas para cálculo da vazão instantânea real
-    if (
-      calib.status === 'calibrated' &&
-      typeof calib.liters_per_pulse === 'number' &&
-      calib.liters_per_pulse > 0 &&
-      pulseEvents &&
-      pulseEvents.length >= 2
-    ) {
+    // 3. Vazão Instantânea Real (baseada estritamente no par mais recente P2 e P1)
+    if (isCalibrated && pulseEvents && pulseEvents.length >= 2) {
       const p2 = pulseEvents[0]; // mais recente
       const p1 = pulseEvents[1]; // anterior
 
@@ -81,12 +76,53 @@ export default async function handler(req, res) {
               intervalSeconds = Number(rawIntervalSec.toFixed(2));
               latestFlowLpm = Number(rawLpm.toFixed(2));
               latestFlowM3h = Number(rawM3h.toFixed(3));
-              samples = 1;
             }
           }
         }
       }
     }
+
+    // 4. Estatísticas Históricas da Janela: Vazão Média, Pico e Quantidade de Amostras Válidas
+    const validFlowSamples = [];
+
+    if (isCalibrated && pulseEvents && pulseEvents.length >= 2) {
+      for (let i = 0; i < pulseEvents.length - 1; i++) {
+        const curr = pulseEvents[i];
+        const prev = pulseEvents[i + 1];
+
+        if (
+          curr.pulse_delta === 1 &&
+          prev.pulse_delta === 1 &&
+          curr.received_at &&
+          prev.received_at
+        ) {
+          const tCurr = new Date(curr.received_at).getTime();
+          const tPrev = new Date(prev.received_at).getTime();
+
+          if (!isNaN(tCurr) && !isNaN(tPrev) && tCurr > tPrev) {
+            const dtSec = (tCurr - tPrev) / 1000;
+
+            if (dtSec > 0) {
+              const flowLpm = (calib.liters_per_pulse / dtSec) * 60;
+
+              if (Number.isFinite(flowLpm) && flowLpm > 0) {
+                validFlowSamples.push(flowLpm);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const samplesCount = validFlowSamples.length;
+
+    const averageFlowLpm = samplesCount > 0
+      ? Number((validFlowSamples.reduce((acc, val) => acc + val, 0) / samplesCount).toFixed(2))
+      : null;
+
+    const maxFlowLpm = samplesCount > 0
+      ? Number(Math.max(...validFlowSamples).toFixed(2))
+      : null;
 
     return res.status(200).json({
       ok: true,
@@ -96,10 +132,10 @@ export default async function handler(req, res) {
       latest_flow_lpm: latestFlowLpm,
       latest_flow_m3h: latestFlowM3h,
       interval_seconds: intervalSeconds,
-      average_flow_lpm: null,
-      max_flow_lpm: null,
+      average_flow_lpm: averageFlowLpm,
+      max_flow_lpm: maxFlowLpm,
       last_pulse_at: lastPulseAt,
-      samples: samples
+      samples: samplesCount
     });
 
   } catch (err) {
