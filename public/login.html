@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login | Sistema de Telemetria Hídrica - SAAE Palmital</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="login.css">
+</head>
+<body>
+  <div class="login-wrapper">
+    <div class="login-card">
+      
+      <!-- Cabeçalho Institucional -->
+      <div class="login-header">
+        <div class="login-brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" fill="#0284c7" stroke="#38bdf8"/>
+          </svg>
+        </div>
+        <div class="login-title-group">
+          <div class="brand-title-row">
+            <h1>TELEMETRIA ÁGUA</h1>
+            <span class="scada-tag">SUPERVISÓRIO</span>
+          </div>
+          <p class="login-subtitle">Acesso ao Sistema de Telemetria Hídrica</p>
+        </div>
+      </div>
+
+      <!-- Formulário de Autenticação -->
+      <form id="login-form" class="login-form" novalidate>
+        
+        <!-- Mensagem de Erro Genérica -->
+        <div id="login-error-msg" class="error-banner hidden" role="alert">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span id="error-text">E-mail ou senha inválidos.</span>
+        </div>
+
+        <!-- Campo E-mail -->
+        <div class="form-group">
+          <label for="input-email" class="form-label">E-mail Institucional</label>
+          <div class="input-wrapper">
+            <svg class="input-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+              <polyline points="22,6 12,13 2,6"/>
+            </svg>
+            <input 
+              type="email" 
+              id="input-email" 
+              class="form-input" 
+              placeholder="seu.email@saae.sp.gov.br" 
+              autocomplete="username" 
+              required
+            >
+          </div>
+        </div>
+
+        <!-- Campo Senha -->
+        <div class="form-group">
+          <label for="input-password" class="form-label">Senha</label>
+          <div class="input-wrapper">
+            <svg class="input-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <input 
+              type="password" 
+              id="input-password" 
+              class="form-input" 
+              placeholder="••••••••••••" 
+              autocomplete="current-password" 
+              required
+            >
+            <button type="button" id="btn-toggle-password" class="btn-toggle-pw" title="Mostrar/Ocultar senha" tabindex="-1">
+              <svg id="icon-eye" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              <svg id="icon-eye-off" class="hidden" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Botão de Login -->
+        <button type="submit" id="btn-login" class="btn-submit">
+          <span id="btn-text">ENTRAR</span>
+          <div id="btn-spinner" class="spinner hidden"></div>
+        </button>
+
+      </form>
+
+      <!-- Rodapé Institucional -->
+      <div class="login-footer">
+        <p class="footer-inst">Prefeitura Municipal / SAAE</p>
+        <p class="footer-city">Palmital - SP</p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Supabase JS Client v2 via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  
+  <!-- Controller de Login -->
+  <script src="login.js"></script>
+</body>
+</html>

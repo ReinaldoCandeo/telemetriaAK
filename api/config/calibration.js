@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { requireAdminAuth } from '../_lib/auth.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -8,7 +9,7 @@ const supabase = createClient(
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') return res.status(204).end();
 
@@ -16,7 +17,7 @@ export default async function handler(req, res) {
   const pathname = url.pathname;
 
   try {
-    // 1. GET /api/config/calibration
+    // 1. GET /api/config/calibration (Leitura pública nesta etapa)
     if (req.method === 'GET') {
       const deviceId = url.searchParams.get('device_id') || 'HIDRO-001';
       const { data: dev, error } = await supabase
@@ -38,8 +39,13 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2. PUT ou POST /api/config/calibration (Salvar fator de calibração)
+    // 2. PUT ou POST /api/config/calibration (Salvar fator de calibração - Exige ADMIN)
     if (req.method === 'PUT' || req.method === 'POST') {
+      const authResult = await requireAdminAuth(req, res);
+      if (!authResult) {
+        return; // Resposta 401 ou 403 já enviada pelo helper
+      }
+
       const payload = req.body || {};
       const deviceId = (payload.device_id || 'HIDRO-001').trim();
       const litersPerPulse = parseFloat(payload.liters_per_pulse);

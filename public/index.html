@@ -8,8 +8,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
-<body>
+<body class="auth-loading">
   <div class="app-container">
     <!-- 1. CABEÇALHO SCADA INDUSTRIAL -->
     <header class="scada-header">
@@ -43,6 +44,9 @@
           <span class="status-dot"></span>
           <span id="status-text">OFFLINE</span>
         </div>
+        <button id="btn-logout" class="scada-btn-logout" title="Encerrar sessão de administrador">
+          <span>SAIR</span>
+        </button>
       </div>
     </header>
 

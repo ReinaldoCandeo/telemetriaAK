@@ -1,3 +1,109 @@
+let supabaseClient = null;
+
+// Obter token Bearer para chamadas administrativas
+async function getAdminAccessToken() {
+  try {
+    if (!supabaseClient) return null;
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    return session?.access_token || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Wrapper para requisições administrativas com Bearer token e tratamento de 401/403
+async function adminFetch(url, options = {}) {
+  const token = await getAdminAccessToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {})
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers
+  });
+
+  if (response.status === 401) {
+    alert('Sessão expirada. Entre novamente.');
+    if (supabaseClient) {
+      await supabaseClient.auth.signOut();
+    }
+    window.location.replace('/login.html');
+    throw new Error('Sessão expirada.');
+  }
+
+  if (response.status === 403) {
+    alert('Você não possui permissão administrativa para esta ação.');
+    throw new Error('Você não possui permissão administrativa para esta ação.');
+  }
+
+  return response;
+}
+
+// Inicializa e valida a sessão do Administrador antes de liberar a tela
+async function initAuthGuard() {
+  try {
+    const cfgRes = await fetch('/api/auth/config', { cache: 'no-store' });
+    if (!cfgRes.ok) {
+      window.location.replace('/login.html');
+      return false;
+    }
+    const cfg = await cfgRes.json();
+    if (!cfg.ok || !cfg.supabase_url || !cfg.supabase_publishable_key || !window.supabase) {
+      window.location.replace('/login.html');
+      return false;
+    }
+
+    supabaseClient = window.supabase.createClient(cfg.supabase_url, cfg.supabase_publishable_key);
+
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session?.user) {
+      window.location.replace('/login.html');
+      return false;
+    }
+
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+    if (userError || !user) {
+      window.location.replace('/login.html');
+      return false;
+    }
+
+    const role = user.app_metadata?.role;
+    if (role === 'admin') {
+      document.body.classList.remove('auth-loading');
+      return true;
+    } else if (role === 'viewer') {
+      window.location.replace('/mapa.html');
+      return false;
+    } else {
+      await supabaseClient.auth.signOut();
+      window.location.replace('/login.html');
+      return false;
+    }
+  } catch (err) {
+    console.error('Erro na verificação de autenticação:', err);
+    window.location.replace('/login.html');
+    return false;
+  }
+}
+
+initAuthGuard();
+
+// Logout Handler
+const btnLogout = document.getElementById('btn-logout');
+if (btnLogout) {
+  btnLogout.addEventListener('click', async () => {
+    if (supabaseClient) {
+      await supabaseClient.auth.signOut();
+    }
+    window.location.replace('/login.html');
+  });
+}
+
 let previousPulseTotal = null;
 let toastTimeout = null;
 
@@ -1029,7 +1135,7 @@ if (btnStartCalibration) {
     showCalibError(null);
     try {
       const devId = (headerDeviceId ? headerDeviceId.textContent.trim() : 'HIDRO-001') || 'HIDRO-001';
-      const res = await fetch('/api/config/calibration/start', {
+      const res = await adminFetch('/api/config/calibration/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ device_id: devId })
@@ -1041,7 +1147,9 @@ if (btnStartCalibration) {
         showCalibError(result.error || 'Erro ao iniciar calibração.');
       }
     } catch (err) {
-      showCalibError('Erro de conexão ao iniciar calibração.');
+      if (err.message !== 'Sessão expirada.' && err.message !== 'Você não possui permissão administrativa para esta ação.') {
+        showCalibError('Erro de conexão ao iniciar calibração.');
+      }
     } finally {
       btnStartCalibration.disabled = false;
     }
@@ -1062,7 +1170,7 @@ if (btnCalculateCalibration && inputKnownVolume) {
     btnCalculateCalibration.disabled = true;
     try {
       const devId = (headerDeviceId ? headerDeviceId.textContent.trim() : 'HIDRO-001') || 'HIDRO-001';
-      const res = await fetch('/api/config/calibration/calculate', {
+      const res = await adminFetch('/api/config/calibration/calculate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ device_id: devId, known_volume_liters: volume })
@@ -1081,7 +1189,9 @@ if (btnCalculateCalibration && inputKnownVolume) {
         showCalibError(result.error || 'Erro ao calcular fator de calibração.');
       }
     } catch (err) {
-      showCalibError('Erro de conexão ao calcular fator.');
+      if (err.message !== 'Sessão expirada.' && err.message !== 'Você não possui permissão administrativa para esta ação.') {
+        showCalibError('Erro de conexão ao calcular fator.');
+      }
     } finally {
       btnCalculateCalibration.disabled = false;
     }
@@ -1096,7 +1206,7 @@ if (btnConfirmCalibration) {
 
     try {
       const devId = (headerDeviceId ? headerDeviceId.textContent.trim() : 'HIDRO-001') || 'HIDRO-001';
-      const res = await fetch('/api/config/calibration/finish', {
+      const res = await adminFetch('/api/config/calibration/finish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1116,7 +1226,9 @@ if (btnConfirmCalibration) {
         showCalibError(result.error || 'Erro ao confirmar calibração.');
       }
     } catch (err) {
-      showCalibError('Erro de conexão ao confirmar calibração.');
+      if (err.message !== 'Sessão expirada.' && err.message !== 'Você não possui permissão administrativa para esta ação.') {
+        showCalibError('Erro de conexão ao confirmar calibração.');
+      }
     } finally {
       btnConfirmCalibration.disabled = false;
     }
@@ -1129,7 +1241,7 @@ if (btnCancelCalibration) {
     showCalibError(null);
     try {
       const devId = (headerDeviceId ? headerDeviceId.textContent.trim() : 'HIDRO-001') || 'HIDRO-001';
-      await fetch('/api/config/calibration/cancel', {
+      await adminFetch('/api/config/calibration/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ device_id: devId })
@@ -1139,7 +1251,9 @@ if (btnCancelCalibration) {
       showCalibState('idle');
       fetchCalibrationSession();
     } catch (err) {
-      showCalibError('Erro ao cancelar sessão.');
+      if (err.message !== 'Sessão expirada.' && err.message !== 'Você não possui permissão administrativa para esta ação.') {
+        showCalibError('Erro ao cancelar sessão.');
+      }
     } finally {
       btnCancelCalibration.disabled = false;
     }
@@ -1182,7 +1296,7 @@ if (btnSaveCalibration && inputLitersPerPulse) {
     const devId = (headerDeviceId ? headerDeviceId.textContent.trim() : 'HIDRO-001') || 'HIDRO-001';
 
     try {
-      const response = await fetch('/api/config/calibration', {
+      const response = await adminFetch('/api/config/calibration', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1199,8 +1313,10 @@ if (btnSaveCalibration && inputLitersPerPulse) {
         alert('Erro ao salvar calibração: ' + (result.error || 'Erro desconhecido'));
       }
     } catch (err) {
-      console.error('Erro ao salvar calibração:', err);
-      alert('Erro de conexão ao salvar calibração.');
+      if (err.message !== 'Sessão expirada.' && err.message !== 'Você não possui permissão administrativa para esta ação.') {
+        console.error('Erro ao salvar calibração:', err);
+        alert('Erro de conexão ao salvar calibração.');
+      }
     }
   });
 }
@@ -1217,7 +1333,7 @@ if (btnFactoryReset) {
 
     btnFactoryReset.disabled = true;
     try {
-      const response = await fetch('/api/system/reset', {
+      const response = await adminFetch('/api/system/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -1231,8 +1347,10 @@ if (btnFactoryReset) {
         btnFactoryReset.disabled = false;
       }
     } catch (err) {
-      console.error('Erro ao chamar /api/system/reset:', err);
-      alert('Erro de conexão ao tentar resetar o sistema.');
+      if (err.message !== 'Sessão expirada.' && err.message !== 'Você não possui permissão administrativa para esta ação.') {
+        console.error('Erro ao chamar /api/system/reset:', err);
+        alert('Erro de conexão ao tentar resetar o sistema.');
+      }
       btnFactoryReset.disabled = false;
     }
   });

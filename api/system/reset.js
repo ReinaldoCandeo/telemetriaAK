@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { requireAdminAuth } from '../_lib/auth.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -7,7 +8,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
@@ -17,8 +18,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: 'Método não permitido' });
   }
 
+  // 1. Validação estrita de Autenticação ADMIN
+  const authResult = await requireAdminAuth(req, res);
+  if (!authResult) {
+    return; // Resposta 401 ou 403 já enviada pelo helper
+  }
+
   try {
-    // 1. Deletar todos os registros de telemetry_events no Supabase
+    // 2. Deletar todos os registros de telemetry_events no Supabase
     const { error: deleteEventsError } = await supabase
       .from('telemetry_events')
       .delete()
