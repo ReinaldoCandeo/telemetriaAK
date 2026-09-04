@@ -229,12 +229,14 @@ async function fetchLatestTelemetry() {
   }
 }
 
-// Initial fetch and poll every 1s for telemetry, 2s for history
+// Initial fetch and poll every 1s for telemetry, 2s for history, 15s for flow sessions
 fetchLatestTelemetry();
 fetchTelemetryHistory();
+fetchFlowSessions();
 
 setInterval(fetchLatestTelemetry, 1000);
 setInterval(fetchTelemetryHistory, 2000);
+setInterval(fetchFlowSessions, 15000);
 
 // History DOM elements
 const histCount = document.getElementById('hist-count');
@@ -829,23 +831,13 @@ function updateSessionsUI(sessionsList, summaryData) {
 
 async function fetchFlowSessions() {
   try {
-    const [resList, resSum] = await Promise.all([
-      fetch('/api/telemetry/flow-sessions?limit=50', { cache: 'no-store' }),
-      fetch('/api/telemetry/flow-sessions/summary', { cache: 'no-store' })
-    ]);
+    const response = await fetch('/api/telemetry/flow-sessions?limit=50', { cache: 'no-store' });
+    if (!response.ok) return;
+    const result = await response.json();
+    if (!result.ok) return;
 
-    let listData = [];
-    let sumData = null;
-
-    if (resList.ok) {
-      const jsonList = await resList.json();
-      if (jsonList.ok && Array.isArray(jsonList.data)) listData = jsonList.data;
-    }
-
-    if (resSum.ok) {
-      const jsonSum = await resSum.json();
-      if (jsonSum.ok) sumData = jsonSum;
-    }
+    const listData = Array.isArray(result.data) ? result.data : [];
+    const sumData = result.summary || null;
 
     updateSessionsUI(listData, sumData);
   } catch (err) {
@@ -1083,7 +1075,6 @@ async function fetchTelemetryHistory() {
   try {
     const response = await fetch('/api/telemetry/history?limit=100', { cache: 'no-store' });
     fetchFlowSummary();
-    fetchFlowSessions();
     fetchCalibrationSession();
     if (!response.ok) return;
     const result = await response.json();
