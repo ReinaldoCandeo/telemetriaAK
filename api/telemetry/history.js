@@ -46,6 +46,12 @@ export default async function handler(req, res) {
       return res.status(500).json({ ok: false, error: 'Erro ao consultar histórico' });
     }
 
+    const isCalibrated = calib.status === 'calibrated' && typeof calib.liters_per_pulse === 'number' && calib.liters_per_pulse > 0;
+
+    // Extrair apenas eventos de pulso para encontrar pares cronológicos consecutivos
+    const pulseEvents = (history || []).filter(item => item.type === 'pulse');
+
+    // Mapear cada evento e calcular vazão quando aplicável
     const enriched = (history || []).map(item => {
       const calcDelta = (item.type === 'pulse' && calib.liters_per_pulse !== null)
         ? Number(((item.pulse_delta || 0) * calib.liters_per_pulse).toFixed(2))
@@ -54,20 +60,81 @@ export default async function handler(req, res) {
         ? Number(((item.pulse_total || 0) * calib.liters_per_pulse).toFixed(2))
         : null;
 
+      let intervalSeconds = null;
+      let flowLpm = null;
+      let flowM3h = null;
+      let flowType = null;
+      let flowStatus = !isCalibrated ? 'calibration_pending' : 'insufficient_data';
+
+      if (item.type === 'pulse') {
+        const pulseIndex = pulseEvents.findIndex(p => p.id === item.id);
+        const prevPulse = pulseIndex !== -1 ? pulseEvents[pulseIndex + 1] : null;
+
+        // Proteção estrita contra agregação offline: ambos os pulsos devem ser delta === 1
+        if (
+          prevPulse &&
+          item.pulse_delta === 1 &&
+          prevPulse.pulse_delta === 1 &&
+          item.received_at &&
+          prevPulse.received_at
+        ) {
+          const tCurrent = new Date(item.received_at).getTime();
+          const tPrev = new Date(prevPulse.received_at).getTime();
+
+          if (!isNaN(tCurrent) && !isNaN(tPrev) && tCurrent > tPrev) {
+            const rawIntervalSec = (tCurrent - tPrev) / 1000;
+
+            if (rawIntervalSec > 0 && isCalibrated) {
+              const rawLpm = (calib.liters_per_pulse / rawIntervalSec) * 60;
+              const rawM3h = rawLpm * 0.06;
+
+              if (Number.isFinite(rawLpm) && Number.isFinite(rawM3h) && rawLpm > 0) {
+                intervalSeconds = Number(rawIntervalSec.toFixed(2));
+                flowLpm = Number(rawLpm.toFixed(2));
+                flowM3h = Number(rawM3h.toFixed(3));
+                flowType = 'single_pulse';
+                flowStatus = 'ok';
+              }
+            }
+          }
+        }
+      }
+
       return {
         ...item,
         calibration: calib,
         calculated_liters_delta: calcDelta,
         calculated_liters_total: calcTotal,
-        interval_seconds: null,
-        flow_lpm: null,
-        flow_m3h: null,
-        flow_type: null,
-        flow_status: calib.liters_per_pulse === null ? 'calibration_pending' : 'insufficient_data'
+        interval_seconds: intervalSeconds,
+        flow_lpm: flowLpm,
+        flow_m3h: flowM3h,
+        flow_type: flowType,
+        flow_status: flowStatus
       };
     });
 
-    return res.status(200).json({ ok: true, data: enriched });
+    // Calcular estatísticas de vazão na memória com as amostras válidas da janela
+    const validFlows = enriched
+      .filter(item => item.flow_status === 'ok' && typeof item.flow_lpm === 'number')
+      .map(item => item.flow_lpm);
+
+    const averageFlowLpm = validFlows.length > 0
+      ? Number((validFlows.reduce((acc, val) => acc + val, 0) / validFlows.length).toFixed(2))
+      : null;
+
+    const maxFlowLpm = validFlows.length > 0
+      ? Number(Math.max(...validFlows).toFixed(2))
+      : null;
+
+    return res.status(200).json({
+      ok: true,
+      data: enriched,
+      metrics: {
+        average_flow_lpm: averageFlowLpm,
+        max_flow_lpm: maxFlowLpm,
+        samples: validFlows.length
+      }
+    });
 
   } catch (err) {
     console.error('Erro no GET /api/telemetry/history:', err);
