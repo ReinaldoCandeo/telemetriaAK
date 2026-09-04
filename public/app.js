@@ -229,14 +229,16 @@ async function fetchLatestTelemetry() {
   }
 }
 
-// Initial fetch and poll every 1s for telemetry, 2s for history, 15s for flow sessions
+// Initial fetch and poll every 1s for telemetry, 2s for history, 15s for flow sessions, 60s for 24h chart
 fetchLatestTelemetry();
 fetchTelemetryHistory();
 fetchFlowSessions();
+fetchFlowChart24h();
 
 setInterval(fetchLatestTelemetry, 1000);
 setInterval(fetchTelemetryHistory, 2000);
 setInterval(fetchFlowSessions, 15000);
+setInterval(fetchFlowChart24h, 60000);
 
 // History DOM elements
 const histCount = document.getElementById('hist-count');
@@ -492,13 +494,23 @@ async function fetchFlowSummary() {
   }
 }
 
-// Render SVG Chart 3: VAZÃO AO LONGO DO TEMPO
-function renderFlowChart(historyList) {
+async function fetchFlowChart24h() {
+  try {
+    const response = await fetch('/api/telemetry/flow-chart-24h', { cache: 'no-store' });
+    if (!response.ok) return;
+    const result = await response.json();
+    if (!result.ok) return;
+    renderFlowChart(result.data || []);
+  } catch (err) {
+    console.error('Erro ao buscar dados do gráfico de 24h:', err);
+  }
+}
+
+// Render SVG Chart 3: VAZÃO AO LONGO DO TEMPO (24 HORAS)
+function renderFlowChart(chartBuckets) {
   if (!chartFlowSvg || !chartFlowEmpty) return;
 
-  const validPulseEvents = (historyList || []).filter(e => e.type === 'pulse' && typeof e.flow_lpm === 'number' && Number.isFinite(e.flow_lpm) && e.flow_status === 'ok');
-
-  if (validPulseEvents.length === 0) {
+  if (!Array.isArray(chartBuckets) || chartBuckets.length === 0) {
     chartFlowEmpty.classList.remove('hidden');
     chartFlowSvg.classList.add('hidden');
     return;
@@ -507,44 +519,102 @@ function renderFlowChart(historyList) {
   chartFlowEmpty.classList.add('hidden');
   chartFlowSvg.classList.remove('hidden');
 
-  const chronoEvents = [...validPulseEvents].reverse();
-  const values = chronoEvents.map(e => Number(e.flow_lpm));
-
   const width = 500;
   const height = 180;
   const padX = 45;
   const padY = 30;
+  const bottomY = height - padY;
 
+  // Obter maior vazão válida para definir escala do eixo Y
+  const flowVals = chartBuckets
+    .filter(b => typeof b.flow_lpm === 'number' && b.flow_lpm > 0)
+    .map(b => b.flow_lpm);
+
+  const maxVal = flowVals.length > 0 ? Math.max(Math.ceil(Math.max(...flowVals) * 1.15), 10) : 300;
   const minVal = 0;
-  const maxVal = Math.max(...values, 1);
   const valRange = maxVal - minVal || 1;
 
-  const points = values.map((val, idx) => {
-    const x = chronoEvents.length > 1
-      ? padX + (idx / (chronoEvents.length - 1)) * (width - 2 * padX)
+  const total = chartBuckets.length;
+
+  const points = chartBuckets.map((b, idx) => {
+    const x = total > 1
+      ? padX + (idx / (total - 1)) * (width - 2 * padX)
       : width / 2;
-    const y = height - padY - ((val - minVal) / valRange) * (height - 2 * padY);
-    const recDate = chronoEvents[idx].received_at ? new Date(chronoEvents[idx].received_at) : null;
-    const timeLabel = recDate ? recDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' }) : '';
-    const isAverage = chronoEvents[idx].flow_type === 'interval_average';
-    return { x, y, val, timeLabel, isAverage, m3h: chronoEvents[idx].flow_m3h };
+
+    let y = null;
+    if (typeof b.flow_lpm === 'number') {
+      y = bottomY - ((b.flow_lpm - minVal) / valRange) * (height - 2 * padY);
+    }
+
+    const recDate = b.timestamp ? new Date(b.timestamp) : null;
+    const timeLabel = recDate
+      ? recDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+      : '';
+
+    return { ...b, x, y, timeLabel };
   });
 
-  let pathD = '';
-  let areaD = '';
+  // Dividir em segmentos contínuos com valores numéricos (ignora gaps de insufficient_data)
+  const segments = [];
+  let currentSeg = [];
 
-  if (points.length === 1) {
-    const pt = points[0];
-    pathD = `M ${pt.x - 30} ${pt.y} L ${pt.x + 30} ${pt.y}`;
-    areaD = `M ${pt.x - 30} ${height - padY} L ${pt.x - 30} ${pt.y} L ${pt.x + 30} ${pt.y} L ${pt.x + 30} ${height - padY} Z`;
-  } else {
-    pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
-    areaD = `${pathD} L ${points[points.length - 1].x.toFixed(1)} ${height - padY} L ${points[0].x.toFixed(1)} ${height - padY} Z`;
+  points.forEach(p => {
+    if (p.y !== null) {
+      currentSeg.push(p);
+    } else {
+      if (currentSeg.length > 0) {
+        segments.push(currentSeg);
+        currentSeg = [];
+      }
+    }
+  });
+  if (currentSeg.length > 0) {
+    segments.push(currentSeg);
   }
 
-  const gridY1 = height - padY;
-  const gridY2 = height - padY - (height - 2 * padY) / 2;
+  let pathsSvg = '';
+  segments.forEach(seg => {
+    let pathD = '';
+    let areaD = '';
+    if (seg.length === 1) {
+      pathD = `M ${(seg[0].x - 2).toFixed(1)} ${seg[0].y.toFixed(1)} L ${(seg[0].x + 2).toFixed(1)} ${seg[0].y.toFixed(1)}`;
+      areaD = `M ${(seg[0].x - 2).toFixed(1)} ${bottomY} L ${(seg[0].x - 2).toFixed(1)} ${seg[0].y.toFixed(1)} L ${(seg[0].x + 2).toFixed(1)} ${seg[0].y.toFixed(1)} L ${(seg[0].x + 2).toFixed(1)} ${bottomY} Z`;
+    } else {
+      pathD = seg.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+      areaD = `${pathD} L ${seg[seg.length - 1].x.toFixed(1)} ${bottomY} L ${seg[0].x.toFixed(1)} ${bottomY} Z`;
+    }
+    pathsSvg += `
+      <path d="${areaD}" fill="url(#flowAreaGrad)"/>
+      <path d="${pathD}" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    `;
+  });
+
+  const gridY1 = bottomY;
+  const gridY2 = bottomY - (height - 2 * padY) / 2;
   const gridY3 = padY;
+
+  // 5 marcas temporais de referência no Eixo X (24h)
+  const timeTickIndices = [
+    0,
+    Math.floor(total * 0.25),
+    Math.floor(total * 0.5),
+    Math.floor(total * 0.75),
+    total - 1
+  ];
+
+  let xGridAndLabels = '';
+  timeTickIndices.forEach((tIdx, i) => {
+    if (tIdx >= 0 && tIdx < points.length) {
+      const pt = points[tIdx];
+      const anchor = i === 0 ? 'start' : (i === timeTickIndices.length - 1 ? 'end' : 'middle');
+      const offsetTextX = pt.x;
+      
+      xGridAndLabels += `
+        <line x1="${pt.x.toFixed(1)}" y1="${gridY3}" x2="${pt.x.toFixed(1)}" y2="${bottomY}" stroke="rgba(255,255,255,0.04)" stroke-dasharray="2,4"/>
+        <text x="${offsetTextX.toFixed(1)}" y="${height - 8}" fill="#64748b" font-size="9" text-anchor="${anchor}" font-family="JetBrains Mono">${pt.timeLabel || '--'}</text>
+      `;
+    }
+  });
 
   let svgContent = `
     <defs>
@@ -557,20 +627,34 @@ function renderFlowChart(historyList) {
     <line x1="${padX}" y1="${gridY2}" x2="${width - padX}" y2="${gridY2}" stroke="rgba(255,255,255,0.08)" stroke-dasharray="4,4"/>
     <line x1="${padX}" y1="${gridY3}" x2="${width - padX}" y2="${gridY3}" stroke="rgba(255,255,255,0.08)" stroke-dasharray="4,4"/>
     
-    <text x="${padX - 8}" y="${gridY3 + 4}" fill="#64748b" font-size="10" text-anchor="end" font-family="JetBrains Mono">${maxVal.toFixed(1)} L/m</text>
+    <text x="${padX - 8}" y="${gridY3 + 4}" fill="#64748b" font-size="10" text-anchor="end" font-family="JetBrains Mono">${maxVal.toFixed(0)} L/m</text>
     <text x="${padX - 8}" y="${gridY1 + 4}" fill="#64748b" font-size="10" text-anchor="end" font-family="JetBrains Mono">0 L/m</text>
 
-    <path d="${areaD}" fill="url(#flowAreaGrad)"/>
-    <path d="${pathD}" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    ${xGridAndLabels}
+    ${pathsSvg}
   `;
 
+  // Renderizar marcadores e títulos de tooltip
   points.forEach((pt) => {
-    const strokeColor = pt.isAverage ? '#f59e0b' : '#3b82f6';
-    svgContent += `
-      <circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="4.5" fill="#06b6d4" stroke="${strokeColor}" stroke-width="2">
-        <title>Horário: ${pt.timeLabel}\nVazão: ${pt.val} L/min (${pt.m3h || '--'} m³/h)${pt.isAverage ? ' (Média no intervalo)' : ''}</title>
-      </circle>
-    `;
+    if (pt.status === 'flow') {
+      svgContent += `
+        <circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="2" fill="#38bdf8" stroke="#090d16" stroke-width="1">
+          <title>Horário: ${pt.timeLabel}\nVazão Média: ${pt.flow_lpm} L/min\nPico: ${pt.max_flow_lpm || pt.flow_lpm} L/min\nVolume: ${pt.volume_liters} L\nPulsos: ${pt.pulse_count}</title>
+        </circle>
+      `;
+    } else if (pt.status === 'insufficient_data') {
+      svgContent += `
+        <circle cx="${pt.x.toFixed(1)}" cy="${bottomY}" r="2" fill="#f59e0b" opacity="0.7">
+          <title>Horário: ${pt.timeLabel}\nDADOS INSUFICIENTES\nVolume: ${pt.volume_liters} L\nPulsos: ${pt.pulse_count}</title>
+        </circle>
+      `;
+    } else {
+      svgContent += `
+        <circle cx="${pt.x.toFixed(1)}" cy="${bottomY}" r="3" fill="transparent">
+          <title>Horário: ${pt.timeLabel}\nSEM PASSAGEM (0 L/min)\nVolume: 0 L</title>
+        </circle>
+      `;
+    }
   });
 
   chartFlowSvg.innerHTML = svgContent;
@@ -580,7 +664,6 @@ function updateHistoryUI(historyList) {
   // Render Charts
   renderVolumeEvolutionChart(historyList);
   renderRecentPulsesChart(historyList);
-  renderFlowChart(historyList);
 
   if (!Array.isArray(historyList) || historyList.length === 0) {
     if (historyEmptyState) historyEmptyState.classList.remove('hidden');
