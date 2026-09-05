@@ -1,6 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const moduleClient = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
+
 function getSupabaseClient() {
+  if (moduleClient) return moduleClient;
   return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
@@ -218,11 +223,19 @@ export async function calculateDailySummary(deviceId, localDateStr) {
   }
 
   const samplesCount = validFlowSamples.length;
+  let maxFlow = 0;
+  let sumFlow = 0;
+  for (let s = 0; s < samplesCount; s++) {
+    const val = validFlowSamples[s];
+    sumFlow += val;
+    if (val > maxFlow) maxFlow = val;
+  }
+
   const averageFlowLpm = samplesCount > 0
-    ? Number((validFlowSamples.reduce((acc, v) => acc + v, 0) / samplesCount).toFixed(2))
+    ? Number((sumFlow / samplesCount).toFixed(2))
     : null;
   const maxFlowLpm = samplesCount > 0
-    ? Number(Math.max(...validFlowSamples).toFixed(2))
+    ? Number(maxFlow.toFixed(2))
     : null;
 
   // 5. Determinação de Status
