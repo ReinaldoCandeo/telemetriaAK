@@ -17,8 +17,11 @@ export default async function handler(req, res) {
   const pathname = url.pathname;
 
   try {
-    // 1. GET /api/config/calibration (Leitura pública nesta etapa)
+    // 1. GET /api/config/calibration (Leitura técnica - Exige ADMIN)
     if (req.method === 'GET') {
+      const authResult = await requireAdminAuth(req, res);
+      if (!authResult) return;
+
       const deviceId = url.searchParams.get('device_id') || 'HIDRO-001';
       const { data: dev, error } = await supabase
         .from('devices')

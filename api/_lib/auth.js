@@ -7,12 +7,13 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 /**
- * Valida se a requisição possui um token JWT de usuário válido com role 'admin' em app_metadata.
+ * Valida se a requisição possui um token JWT de usuário válido com uma das roles permitidas em app_metadata.
  * @param {object} req - Requisição HTTP
  * @param {object} res - Resposta HTTP
- * @returns {Promise<{ user: object } | null>} Retorna o objeto do usuário se autenticado como admin, ou null se a resposta de erro já foi enviada.
+ * @param {string[]} allowedRoles - Lista de roles permitidas (ex: ['viewer', 'admin'])
+ * @returns {Promise<{ user: object } | null>} Retorna o objeto do usuário se autenticado, ou null se erro enviado.
  */
-export async function requireAdminAuth(req, res) {
+export async function requireRole(req, res, allowedRoles = ['admin']) {
   try {
     const authHeader = req.headers.authorization || req.headers.Authorization;
 
@@ -41,10 +42,10 @@ export async function requireAdminAuth(req, res) {
       return null;
     }
 
-    // Validação estrita de Role administrativa em app_metadata (imutável pelo usuário comum)
+    // Validação estrita de Role em app_metadata (imutável pelo usuário comum)
     const userRole = user.app_metadata?.role;
 
-    if (userRole !== 'admin') {
+    if (!allowedRoles.includes(userRole)) {
       res.status(403).json({ ok: false, error: 'FORBIDDEN' });
       return null;
     }
@@ -57,3 +58,18 @@ export async function requireAdminAuth(req, res) {
     return null;
   }
 }
+
+/**
+ * Valida se a requisição possui um token JWT de usuário válido com role 'admin' em app_metadata.
+ */
+export async function requireAdminAuth(req, res) {
+  return requireRole(req, res, ['admin']);
+}
+
+/**
+ * Valida se a requisição possui um token JWT de usuário válido com role 'viewer' ou 'admin' em app_metadata.
+ */
+export async function requireViewerOrAdmin(req, res) {
+  return requireRole(req, res, ['viewer', 'admin']);
+}
+

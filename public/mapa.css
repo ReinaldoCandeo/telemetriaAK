@@ -1,0 +1,747 @@
+/* ==========================================================================
+   SCADA INDUSTRIAL SYSTEM DESIGN - MAPA OPERACIONAL DOS PONTOS
+   Visualização Georreferenciada e Supervisório de Telemetria Hídrica
+   ========================================================================== */
+
+:root {
+  /* Paleta Base SCADA */
+  --scada-bg: #f1f5f9;
+  --scada-surface: #ffffff;
+  --scada-surface-subtle: #f8fafc;
+  --scada-border: #cbd5e1;
+  --scada-border-light: #e2e8f0;
+  --scada-border-focus: #0284c7;
+
+  /* Tipografia & Cores de Texto */
+  --text-heading: #0f172a;       /* Navy Escuro */
+  --text-body: #334155;          /* Cinza Slate Médio */
+  --text-muted: #64748b;         /* Cinza Suave */
+  --text-subtle: #94a3b8;
+
+  /* Cores de Destaque SCADA */
+  --scada-navy: #0f172a;
+  --scada-navy-header: #1e293b;
+  --scada-blue: #0284c7;         /* Azul Saneamento */
+  --scada-blue-hover: #0369a1;
+  --scada-cyan: #06b6d4;
+  --scada-cyan-light: #ecfeff;
+  --scada-emerald: #059669;      /* Verde Operacional */
+  --scada-emerald-bg: #ecfdf5;
+  --scada-amber: #d97706;        /* Amarelo Alerta */
+  --scada-amber-bg: #fffbeb;
+  --scada-rose: #dc2626;         /* Vermelho Erro */
+  --scada-rose-bg: #fef2f2;
+
+  /* Sombras Sutis Industriais */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+}
+
+/* Reset & Configurações Globais */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  background-color: var(--scada-bg);
+  color: var(--text-body);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 1rem;
+  -webkit-font-smoothing: antialiased;
+}
+
+body.auth-loading .map-app-container {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.text-online {
+  color: #10b981 !important;
+}
+
+.text-offline {
+  color: #ef4444 !important;
+}
+
+.text-warning {
+  color: #f59e0b !important;
+}
+
+/* Container Principal */
+.map-app-container {
+  width: 100%;
+  max-width: 1400px;
+  background: var(--scada-surface);
+  border: 1px solid var(--scada-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==========================================================================
+   1. CABEÇALHO SCADA
+   ========================================================================== */
+.scada-header {
+  background: var(--scada-navy);
+  color: #ffffff;
+  padding: 1.15rem 1.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 3px solid var(--scada-blue);
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.scada-brand-icon {
+  width: 44px;
+  height: 44px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scada-brand-icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+.header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-title-row h1 {
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+}
+
+.scada-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: rgba(2, 132, 199, 0.35);
+  color: #38bdf8;
+  border: 1px solid #0284c7;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+}
+
+.header-sub {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-comm-box {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.07);
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.comm-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+}
+
+.status-indicator {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.status-indicator::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-online {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid #059669;
+}
+
+.status-online::before {
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.status-offline {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid #dc2626;
+}
+
+.status-offline::before {
+  background: #ef4444;
+}
+
+.btn-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0.45rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-action:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--scada-blue);
+  color: #ffffff;
+  text-decoration: none;
+  padding: 0.45rem 0.95rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(2, 132, 199, 0.3);
+}
+
+.btn-back:hover {
+  background: var(--scada-blue-hover);
+}
+
+.btn-logout {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  padding: 0.45rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-logout:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ffffff;
+  border-color: #ef4444;
+}
+
+/* ==========================================================================
+   2. GRADE SUPERIOR DE MÉTRICAS
+   ========================================================================== */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  background: var(--scada-surface-subtle);
+  border-bottom: 1px solid var(--scada-border-light);
+}
+
+.metric-card {
+  background: var(--scada-surface);
+  border: 1px solid var(--scada-border-light);
+  border-radius: 8px;
+  padding: 1rem 1.15rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.metric-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.metric-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.metric-icon-badge {
+  font-size: 0.85rem;
+}
+
+.metric-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  margin-top: 0.15rem;
+}
+
+.metric-denom {
+  font-size: 1rem;
+  color: var(--text-subtle);
+  font-weight: 500;
+}
+
+.metric-value .unit {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.metric-sub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   3. ÁREA PRINCIPAL: MAPA + LISTA DE PONTOS
+   ========================================================================== */
+.main-content-grid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 1.25rem;
+  padding: 1.25rem 1.5rem;
+  min-height: 600px;
+}
+
+@media (max-width: 1024px) {
+  .main-content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Painel do Mapa */
+.map-pane {
+  background: var(--scada-surface);
+  border: 1px solid var(--scada-border-light);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.pane-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.85rem 1.25rem;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--scada-border-light);
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pane-title {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--text-heading);
+  letter-spacing: 0.02em;
+}
+
+.pane-sub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.map-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot-online {
+  background: #10b981;
+  box-shadow: 0 0 4px #10b981;
+}
+
+.dot-offline {
+  background: #ef4444;
+}
+
+.dot-planned {
+  background: #94a3b8;
+}
+
+.map-wrapper {
+  position: relative;
+  flex: 1;
+  min-height: 480px;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+  min-height: 480px;
+  z-index: 1;
+}
+
+/* Aviso de Localização Pendente */
+.geo-notice {
+  position: absolute;
+  bottom: 1.25rem;
+  left: 1.25rem;
+  right: 1.25rem;
+  background: rgba(15, 23, 42, 0.92);
+  color: #ffffff;
+  padding: 0.85rem 1.15rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: var(--shadow-md);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  backdrop-filter: blur(4px);
+}
+
+.geo-notice-icon {
+  font-size: 1.4rem;
+}
+
+.geo-notice-content strong {
+  font-size: 0.85rem;
+  color: #f59e0b;
+  display: block;
+}
+
+.geo-notice-content p {
+  font-size: 0.75rem;
+  color: #cbd5e1;
+  margin-top: 0.15rem;
+}
+
+/* ==========================================================================
+   4. PAINEL LATERAL: LISTA DE PONTOS
+   ========================================================================== */
+.sidebar-pane {
+  background: var(--scada-surface);
+  border: 1px solid var(--scada-border-light);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.sidebar-header {
+  padding: 1rem 1.15rem;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--scada-border-light);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sidebar-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-title {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--text-heading);
+  letter-spacing: 0.02em;
+}
+
+.badge-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: #e2e8f0;
+  color: var(--text-body);
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #ffffff;
+  border: 1px solid var(--scada-border);
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+}
+
+.search-box input {
+  border: none;
+  outline: none;
+  font-size: 0.8rem;
+  color: var(--text-body);
+  width: 100%;
+  font-family: inherit;
+}
+
+.filter-tabs {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.filter-tab {
+  flex: 1;
+  background: #ffffff;
+  border: 1px solid var(--scada-border-light);
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filter-tab.active {
+  background: var(--scada-blue);
+  color: #ffffff;
+  border-color: var(--scada-blue);
+}
+
+.devices-list {
+  flex: 1;
+  padding: 1rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  background: #fafafa;
+}
+
+/* Card do Dispositivo */
+.device-item-card {
+  background: #ffffff;
+  border: 1px solid var(--scada-border);
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.device-item-card:hover {
+  border-color: var(--scada-blue);
+  box-shadow: var(--shadow-md);
+}
+
+.device-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.device-id-box {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.device-icon {
+  font-size: 1.3rem;
+}
+
+.device-id-title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--scada-blue);
+}
+
+.device-desc {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  display: block;
+}
+
+.status-pill {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  letter-spacing: 0.05em;
+}
+
+/* Grade de Métricas no Card Lateral */
+.device-metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  background: #f8fafc;
+  border: 1px solid var(--scada-border-light);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.device-metric-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.cell-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.cell-value {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.cell-sub {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+/* Informações de Conexão no Rodapé do Card */
+.device-footer-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border-top: 1px dashed var(--scada-border-light);
+  padding-top: 0.65rem;
+}
+
+.footer-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+}
+
+.footer-label {
+  color: var(--text-muted);
+}
+
+.footer-val {
+  font-weight: 600;
+  color: var(--text-body);
+}
+
+.sidebar-footer {
+  padding: 0.75rem 1rem;
+  background: #f1f5f9;
+  border-top: 1px solid var(--scada-border-light);
+  text-align: center;
+}
+
+.sidebar-footer p {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   5. BARRA INFERIOR DE STATUS
+   ========================================================================== */
+.scada-footer-bar {
+  background: var(--scada-navy);
+  color: #94a3b8;
+  padding: 0.75rem 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.footer-status-left,
+.footer-status-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.footer-status-right strong {
+  color: #ffffff;
+}
+
+.separator {
+  color: #475569;
+}

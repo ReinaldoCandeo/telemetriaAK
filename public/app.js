@@ -1,4 +1,5 @@
 let supabaseClient = null;
+let isLoggingOut = false;
 
 // Obter token Bearer para chamadas administrativas
 async function getAdminAccessToken() {
@@ -11,7 +12,7 @@ async function getAdminAccessToken() {
   }
 }
 
-// Wrapper para requisições administrativas com Bearer token e tratamento de 401/403
+// Wrapper para requisições com Bearer token e tratamento de 401/403
 async function adminFetch(url, options = {}) {
   const token = await getAdminAccessToken();
   const headers = {
@@ -28,11 +29,14 @@ async function adminFetch(url, options = {}) {
   });
 
   if (response.status === 401) {
-    alert('Sessão expirada. Entre novamente.');
-    if (supabaseClient) {
-      await supabaseClient.auth.signOut();
+    if (!isLoggingOut) {
+      isLoggingOut = true;
+      alert('Sessão expirada. Entre novamente.');
+      if (supabaseClient) {
+        await supabaseClient.auth.signOut();
+      }
+      window.location.replace('/login.html');
     }
-    window.location.replace('/login.html');
     throw new Error('Sessão expirada.');
   }
 
@@ -91,7 +95,23 @@ async function initAuthGuard() {
   }
 }
 
-initAuthGuard();
+// Inicia aplicação e polling após autenticação validada
+async function startApp() {
+  const isAuth = await initAuthGuard();
+  if (isAuth) {
+    fetchLatestTelemetry();
+    fetchTelemetryHistory();
+    fetchFlowSessions();
+    fetchFlowChart24h();
+
+    setInterval(fetchLatestTelemetry, 1000);
+    setInterval(fetchTelemetryHistory, 2000);
+    setInterval(fetchFlowSessions, 15000);
+    setInterval(fetchFlowChart24h, 60000);
+  }
+}
+
+startApp();
 
 // Logout Handler
 const btnLogout = document.getElementById('btn-logout');
@@ -154,14 +174,16 @@ let systemTotalsCache = null;
 
 async function fetchSystemSummary() {
   try {
-    const response = await fetch('/api/telemetry/system-summary', { cache: 'no-store' });
+    const response = await adminFetch('/api/telemetry/system-summary', { cache: 'no-store' });
     if (!response.ok) return;
     const result = await response.json();
     if (result.ok) {
       systemTotalsCache = result;
     }
   } catch (err) {
-    console.error('Erro ao buscar acumulado do sistema:', err);
+    if (err.message !== 'Sessão expirada.') {
+      console.error('Erro ao buscar acumulado do sistema:', err);
+    }
   }
 }
 
@@ -309,8 +331,8 @@ function updateUI(telemetry) {
 async function fetchLatestTelemetry() {
   try {
     const [latestRes, summaryRes] = await Promise.all([
-      fetch('/api/telemetry/latest', { cache: 'no-store' }),
-      fetch('/api/telemetry/system-summary', { cache: 'no-store' })
+      adminFetch('/api/telemetry/latest', { cache: 'no-store' }),
+      adminFetch('/api/telemetry/system-summary', { cache: 'no-store' })
     ]);
 
     if (summaryRes.ok) {
@@ -331,20 +353,11 @@ async function fetchLatestTelemetry() {
       updateUI(null);
     }
   } catch (err) {
-    console.error('Erro ao buscar dados:', err);
+    if (err.message !== 'Sessão expirada.') {
+      console.error('Erro ao buscar dados:', err);
+    }
   }
 }
-
-// Initial fetch and poll every 1s for telemetry, 2s for history, 15s for flow sessions, 60s for 24h chart
-fetchLatestTelemetry();
-fetchTelemetryHistory();
-fetchFlowSessions();
-fetchFlowChart24h();
-
-setInterval(fetchLatestTelemetry, 1000);
-setInterval(fetchTelemetryHistory, 2000);
-setInterval(fetchFlowSessions, 15000);
-setInterval(fetchFlowChart24h, 60000);
 
 // History DOM elements
 const histCount = document.getElementById('hist-count');
@@ -536,7 +549,7 @@ setInterval(updateRelativeTimeDisplay, 1000);
 
 async function fetchFlowSummary() {
   try {
-    const response = await fetch('/api/telemetry/flow-summary', { cache: 'no-store' });
+    const response = await adminFetch('/api/telemetry/flow-summary', { cache: 'no-store' });
     if (!response.ok) return;
     const result = await response.json();
     if (!result.ok) return;
@@ -602,7 +615,7 @@ async function fetchFlowSummary() {
 
 async function fetchFlowChart24h() {
   try {
-    const response = await fetch('/api/telemetry/flow-chart-24h', { cache: 'no-store' });
+    const response = await adminFetch('/api/telemetry/flow-chart-24h', { cache: 'no-store' });
     if (!response.ok) return;
     const result = await response.json();
     if (!result.ok) return;
@@ -1020,7 +1033,7 @@ function updateSessionsUI(sessionsList, summaryData) {
 
 async function fetchFlowSessions() {
   try {
-    const response = await fetch('/api/telemetry/flow-sessions?limit=50', { cache: 'no-store' });
+    const response = await adminFetch('/api/telemetry/flow-sessions?limit=50', { cache: 'no-store' });
     if (!response.ok) return;
     const result = await response.json();
     if (!result.ok) return;
@@ -1062,7 +1075,7 @@ let currentPreviewCalculation = null;
 
 async function fetchCalibrationSession() {
   try {
-    const response = await fetch('/api/config/calibration/session', { cache: 'no-store' });
+    const response = await adminFetch('/api/config/calibration/session', { cache: 'no-store' });
     if (!response.ok) return;
     const result = await response.json();
     if (result.ok) {
@@ -1270,7 +1283,7 @@ if (btnBackCalibration) {
 
 async function fetchTelemetryHistory() {
   try {
-    const response = await fetch('/api/telemetry/history?limit=100', { cache: 'no-store' });
+    const response = await adminFetch('/api/telemetry/history?limit=100', { cache: 'no-store' });
     fetchFlowSummary();
     fetchCalibrationSession();
     if (!response.ok) return;
