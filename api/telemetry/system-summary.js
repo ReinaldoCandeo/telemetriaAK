@@ -32,33 +32,65 @@ export default async function handler(req, res) {
       calibrated_at: devData?.calibrated_at || null
     };
 
-    // 2. Buscar eventos físicos de pulso para acumulação real
-    const { data: events, error: queryError } = await supabase
-      .from('telemetry_events')
-      .select('pulse_delta, received_at')
-      .eq('device_id', deviceId)
-      .eq('type', 'pulse')
-      .order('received_at', { ascending: true });
+    // 2. Buscar eventos físicos de pulso com paginação completa (sem teto silencioso)
+    const PAGE_SIZE = 1000;
+    let sumPulses = 0;
+    let pulseEventsTotal = 0;
+    let firstPulseAt = null;
+    let lastPulseAt = null;
 
-    if (queryError) {
-      console.error('Erro ao consultar system-summary no Supabase:', queryError);
-      return res.status(500).json({ ok: false, error: 'Erro ao consultar banco de dados' });
+    let page = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      const { data: pageRows, error: queryError } = await supabase
+        .from('telemetry_events')
+        .select('pulse_delta, received_at')
+        .eq('device_id', deviceId)
+        .eq('type', 'pulse')
+        .order('received_at', { ascending: true })
+        .range(from, to);
+
+      if (queryError) {
+        console.error(`Erro ao consultar página ${page} de telemetry_events:`, queryError);
+        return res.status(500).json({ ok: false, error: 'Erro ao consultar banco de dados' });
+      }
+
+      const rows = pageRows || [];
+      if (rows.length > 0) {
+        if (firstPulseAt === null) {
+          firstPulseAt = rows[0].received_at;
+        }
+        lastPulseAt = rows[rows.length - 1].received_at;
+
+        for (let i = 0; i < rows.length; i++) {
+          const delta = Number(rows[i].pulse_delta);
+          sumPulses += (!isNaN(delta) && delta > 0) ? delta : 1;
+        }
+
+        pulseEventsTotal += rows.length;
+      }
+
+      if (rows.length < PAGE_SIZE) {
+        hasMore = false;
+      } else {
+        page++;
+      }
     }
 
-    const sumPulses = (events || []).reduce((acc, ev) => acc + (ev.pulse_delta || 1), 0);
     const sumLiters = (calib.status === 'calibrated' && calib.liters_per_pulse !== null)
       ? Number((sumPulses * calib.liters_per_pulse).toFixed(2))
       : null;
-
-    const firstPulseAt = (events && events.length > 0) ? events[0].received_at : null;
-    const lastPulseAt = (events && events.length > 0) ? events[events.length - 1].received_at : null;
 
     return res.status(200).json({
       ok: true,
       device_id: deviceId,
       system_pulse_total: sumPulses,
       system_volume_liters: sumLiters,
-      pulse_events_total: (events || []).length,
+      pulse_events_total: pulseEventsTotal,
       first_pulse_at: firstPulseAt,
       last_pulse_at: lastPulseAt,
       calibration_status: calib.status,
