@@ -10,8 +10,8 @@ const POINTS_CONFIG = [
     device_id: 'HIDRO-001',
     name: 'HIDRO-001',
     description: 'Ponto de Medição Hidrômetro DN50',
-    latitude: null,
-    longitude: null
+    latitude: -22.778683,
+    longitude: -50.220552
   }
 ];
 
@@ -125,25 +125,27 @@ async function handleForbiddenError() {
 
 // 4. Inicialização do Mapa Leaflet
 function initMap() {
-  const palmitalCoords = [-22.7885, -50.2195];
-  
+  const hidro = POINTS_CONFIG[0];
+  const initialCoords = (hidro.latitude !== null && hidro.longitude !== null)
+    ? [hidro.latitude, hidro.longitude]
+    : [-22.7885, -50.2195];
+  const initialZoom = (hidro.latitude !== null && hidro.longitude !== null) ? 17 : 14;
+
   map = L.map('map', {
     zoomControl: true,
     attributionControl: true
-  }).setView(palmitalCoords, 14);
+  }).setView(initialCoords, initialZoom);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
   }).addTo(map);
 
-  const hidro = POINTS_CONFIG[0];
-
   if (hidro.latitude !== null && hidro.longitude !== null) {
     if (geoNotice) geoNotice.classList.add('hidden');
     
     marker = L.circleMarker([hidro.latitude, hidro.longitude], {
-      radius: 9,
+      radius: 10,
       fillColor: '#ef4444',
       color: '#ffffff',
       weight: 2,
@@ -157,27 +159,59 @@ function initMap() {
   }
 }
 
-// 5. Formatação de Popup Leaflet
+// 5. Formatação de Popup Leaflet com Dados Reais
 function generatePopupContent(isOnline) {
   const statusStr = isOnline ? '<strong style="color:#10b981;">ONLINE</strong>' : '<strong style="color:#ef4444;">OFFLINE</strong>';
-  const flowStr = flowSummaryCache?.latest_flow_lpm !== null && flowSummaryCache?.latest_flow_lpm !== undefined
-    ? `${flowSummaryCache.latest_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L/min (${flowSummaryCache.latest_flow_m3h || '--'} m³/h)`
-    : '--';
-  const volStr = systemSummaryCache?.system_volume_liters !== null && systemSummaryCache?.system_volume_liters !== undefined
-    ? `${systemSummaryCache.system_volume_liters.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L`
-    : '--';
+  const now = Date.now();
+  let lastRecStr = '--:--:--';
+  if (telemetryCache?.received_at) {
+    const d = new Date(telemetryCache.received_at);
+    const diffSec = Math.floor((now - d.getTime()) / 1000);
+    lastRecStr = `${d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (${diffSec}s atrás)`;
+  }
+  const rssiStr = telemetryCache?.rssi !== null && telemetryCache?.rssi !== undefined ? `${telemetryCache.rssi} dBm` : '-- dBm';
   const pulsesStr = systemSummaryCache?.system_pulse_total !== undefined
     ? systemSummaryCache.system_pulse_total.toLocaleString('pt-BR')
-    : '--';
+    : (telemetryCache?.pulse_total ? telemetryCache.pulse_total.toLocaleString('pt-BR') : '--');
+  const volStr = systemSummaryCache?.system_volume_liters !== null && systemSummaryCache?.system_volume_liters !== undefined
+    ? `${systemSummaryCache.system_volume_liters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L`
+    : '-- L';
+  const flowInstStr = flowSummaryCache?.latest_flow_lpm !== null && flowSummaryCache?.latest_flow_lpm !== undefined
+    ? `${flowSummaryCache.latest_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`
+    : '-- L/min';
+  const flowM3hStr = flowSummaryCache?.latest_flow_m3h !== null && flowSummaryCache?.latest_flow_m3h !== undefined
+    ? `${flowSummaryCache.latest_flow_m3h.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 3 })} m³/h`
+    : '-- m³/h';
+  const flowAvgStr = flowSummaryCache?.average_flow_lpm !== null && flowSummaryCache?.average_flow_lpm !== undefined
+    ? `${flowSummaryCache.average_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`
+    : '-- L/min';
+  const flowMaxStr = flowSummaryCache?.max_flow_lpm !== null && flowSummaryCache?.max_flow_lpm !== undefined
+    ? `${flowSummaryCache.max_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`
+    : '-- L/min';
+  
+  const calibFactor = systemSummaryCache?.liters_per_pulse || telemetryCache?.calibration?.liters_per_pulse;
+  const calibStr = calibFactor ? `Calibrado (${calibFactor} L/p)` : 'Pendente';
+
+  const sum = sessionsCache?.summary;
+  const hasOpen = sum && sum.open_session;
+  const sessionStr = hasOpen ? 'Passagem Ativa' : 'Sem Passagem';
 
   return `
-    <div style="font-family: system-ui, sans-serif; min-width: 200px; font-size: 12px; line-height: 1.4;">
-      <h4 style="margin: 0 0 4px 0; font-size: 14px; color: #0284c7;">HIDRO-001</h4>
-      <div style="margin-bottom: 6px;">Status: ${statusStr}</div>
-      <div><strong>Vazão:</strong> ${flowStr}</div>
-      <div><strong>Volume:</strong> ${volStr}</div>
+    <div style="font-family: system-ui, sans-serif; min-width: 220px; font-size: 12px; line-height: 1.5; color: #1e293b;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">
+        <h4 style="margin: 0; font-size: 14px; font-weight: 800; color: #0284c7;">HIDRO-001</h4>
+        <div>${statusStr}</div>
+      </div>
+      <div><strong>Último envio:</strong> ${lastRecStr}</div>
+      <div><strong>Sinal Wi-Fi:</strong> ${rssiStr}</div>
       <div><strong>Pulsos:</strong> ${pulsesStr}</div>
-      <div style="margin-top: 6px; font-size: 10px; color: #64748b;">Palmital / SP</div>
+      <div><strong>Volume:</strong> ${volStr}</div>
+      <div><strong>Vazão Instantânea:</strong> ${flowInstStr} (${flowM3hStr})</div>
+      <div><strong>Vazão Média:</strong> ${flowAvgStr}</div>
+      <div><strong>Vazão Pico:</strong> ${flowMaxStr}</div>
+      <div><strong>Sessão:</strong> ${sessionStr}</div>
+      <div><strong>Calibração:</strong> ${calibStr}</div>
+      <div style="margin-top: 6px; font-size: 10px; color: #64748b; text-align: right;">Palmital / SP</div>
     </div>
   `;
 }
@@ -362,6 +396,17 @@ function updateUI() {
       : '-- dBm';
   }
 
+  if (hidroGeoStatus) {
+    const hidro = POINTS_CONFIG[0];
+    if (hidro.latitude !== null && hidro.longitude !== null) {
+      hidroGeoStatus.className = 'footer-val font-mono text-online';
+      hidroGeoStatus.textContent = `${hidro.latitude.toFixed(6)}, ${hidro.longitude.toFixed(6)}`;
+    } else {
+      hidroGeoStatus.className = 'footer-val font-mono text-warning';
+      hidroGeoStatus.textContent = 'Pendente de cadastro';
+    }
+  }
+
   // Leaflet Marker Color Update if marker exists
   if (marker) {
     marker.setStyle({
@@ -431,6 +476,17 @@ function setupEventListeners() {
         try { await supabaseClient.auth.signOut(); } catch (e) {}
       }
       window.location.replace('/login.html');
+    });
+  }
+
+  if (cardHidro001) {
+    cardHidro001.style.cursor = 'pointer';
+    cardHidro001.addEventListener('click', () => {
+      const hidro = POINTS_CONFIG[0];
+      if (map && hidro.latitude !== null && hidro.longitude !== null) {
+        map.flyTo([hidro.latitude, hidro.longitude], 17, { animate: true, duration: 0.8 });
+        if (marker) marker.openPopup();
+      }
     });
   }
 
