@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MAPA OPERACIONAL DOS PONTOS | Telemetria de Água</title>
+  <title>CENTRO DE SUPERVISÃO | Telemetria Hídrica - Palmital/SP</title>
   
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
@@ -19,7 +19,7 @@
 <body class="auth-loading">
   <div class="map-app-container">
     
-    <!-- CABEÇALHO SCADA -->
+    <!-- CABEÇALHO EXECUTIVO / SCADA -->
     <header class="scada-header">
       <div class="header-brand">
         <div class="scada-brand-icon">
@@ -29,10 +29,10 @@
         </div>
         <div class="header-info">
           <div class="header-title-row">
-            <h1>MAPA OPERACIONAL DOS PONTOS</h1>
-            <span class="scada-tag">SUPERVISÓRIO</span>
+            <h1>TELEMETRIA ÁGUA</h1>
+            <span class="scada-tag">CENTRO DE SUPERVISÃO</span>
           </div>
-          <p class="header-sub">Visualização em tempo real dos pontos de telemetria de água • Palmital/SP</p>
+          <p class="header-sub">Monitoramento hídrico em tempo real • Palmital/SP</p>
         </div>
       </div>
       
@@ -43,21 +43,23 @@
         </div>
         
         <button id="btn-refresh" class="btn-action" title="Atualizar dados agora">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
           </svg>
-          Atualizar Dados
+          Atualizar
         </button>
         
-        <a href="/" id="link-dashboard" class="btn-back hidden" title="Voltar ao Dashboard Principal">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M19 12H5M12 19l-7-7 7-7"/>
+        <!-- Botão exclusivo para ADMIN (invisível para VIEWER) -->
+        <a href="/" id="link-dashboard" class="btn-tech hidden" title="Acessar Dashboard Técnico Avançado">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
           </svg>
-          ← Dashboard
+          Dashboard Técnico
         </a>
 
         <button id="btn-logout" class="btn-logout" title="Encerrar Sessão">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
           </svg>
           Sair
@@ -65,8 +67,9 @@
       </div>
     </header>
 
-    <!-- BARRA SUPERIOR DE MÉTRICAS -->
+    <!-- BARRA SUPERIOR DE MÉTRICAS EXECUTIVAS (MÁXIMO 5 CARDS) -->
     <section class="metrics-grid">
+      <!-- Card 1: Pontos Monitorados -->
       <div class="metric-card">
         <div class="metric-header">
           <span class="metric-title">PONTOS MONITORADOS</span>
@@ -76,44 +79,48 @@
         <div class="metric-sub" id="sub-monitored-points">1 instalado • 33 previstos</div>
       </div>
 
+      <!-- Card 2: Status Online -->
       <div class="metric-card">
         <div class="metric-header">
           <span class="metric-title">ONLINE</span>
           <span class="metric-icon-badge badge-green-dot">🟢</span>
         </div>
         <div class="metric-value font-mono text-online" id="val-online-points">--</div>
-        <div class="metric-sub" id="sub-online-points">Dispositivos comunicando</div>
+        <div class="metric-sub" id="sub-online-points">Em operação contínua</div>
       </div>
 
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-title">OFFLINE</span>
-          <span class="metric-icon-badge badge-red-dot">🔴</span>
-        </div>
-        <div class="metric-value font-mono text-offline" id="val-offline-points">--</div>
-        <div class="metric-sub" id="sub-offline-points">Sem sinal recente (>20s)</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-title">CALIBRAÇÃO</span>
-          <span class="metric-icon-badge">⚙️</span>
-        </div>
-        <div class="metric-value font-mono" id="val-calib-status">--</div>
-        <div class="metric-sub font-mono" id="val-calib-factor">Fator: --</div>
-      </div>
-
+      <!-- Card 3: Volume Acumulado (m³ em destaque) -->
       <div class="metric-card">
         <div class="metric-header">
           <span class="metric-title">VOLUME ACUMULADO</span>
           <span class="metric-icon-badge">💧</span>
         </div>
-        <div class="metric-value font-mono" id="val-total-volume">-- <span class="unit">L</span></div>
-        <div class="metric-sub font-mono" id="val-total-volume-m3">-- m³ acumulados</div>
+        <div class="metric-value font-mono" id="val-total-volume-m3-main">-- <span class="unit">m³</span></div>
+        <div class="metric-sub font-mono" id="val-total-volume-liters-sub">-- L acumulados</div>
+      </div>
+
+      <!-- Card 4: Vazão Atual (L/min em destaque) -->
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">VAZÃO ATUAL</span>
+          <span class="metric-icon-badge">⚡</span>
+        </div>
+        <div class="metric-value font-mono" id="val-current-flow-main">-- <span class="unit">L/min</span></div>
+        <div class="metric-sub font-mono" id="val-current-flow-m3h-sub">-- m³/h</div>
+      </div>
+
+      <!-- Card 5: Passagem de Água -->
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">PASSAGEM</span>
+          <span class="metric-icon-badge">🌊</span>
+        </div>
+        <div class="metric-value font-mono" id="val-session-status-top">--</div>
+        <div class="metric-sub font-mono" id="val-session-detail-top">--</div>
       </div>
     </section>
 
-    <!-- ÁREA PRINCIPAL: MAPA + PAINEL LATERAL -->
+    <!-- ÁREA PRINCIPAL: MAPA DOMINANTE (~70%) + PAINEL LATERAL (~30%) -->
     <main class="main-content-grid">
       
       <!-- MAPA LEAFLET -->
@@ -121,7 +128,7 @@
         <div class="pane-header">
           <div class="pane-title-group">
             <h2 class="pane-title">MAPA GEORREFERENCIADO</h2>
-            <span class="pane-sub">Palmital / SP • Rede de Telemetria Hídrica</span>
+            <span class="pane-sub">Palmital / SP • Supervisório de Telemetria Hídrica</span>
           </div>
           <div class="map-legend">
             <span class="legend-item"><span class="dot dot-online"></span> Online</span>
@@ -133,22 +140,22 @@
         <div class="map-wrapper">
           <div id="map"></div>
           
-          <!-- Aviso Discreto de Localização Pendente -->
-          <div id="geo-notice" class="geo-notice">
+          <!-- Aviso Discreto de Localização Pendente (se não houver GPS cadastrado) -->
+          <div id="geo-notice" class="geo-notice hidden">
             <div class="geo-notice-icon">📍</div>
             <div class="geo-notice-content">
-              <strong>Localização do HIDRO-001 pendente de cadastro</strong>
-              <p>O mapa está centralizado em Palmital/SP. Nenhum marcador fictício foi posicionado.</p>
+              <strong>Localização do ponto pendente de cadastro</strong>
+              <p>O mapa está centralizado em Palmital/SP.</p>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- PAINEL LATERAL: LISTA DE PONTOS -->
+      <!-- PAINEL LATERAL: PONTOS MONITORADOS -->
       <aside class="sidebar-pane">
         <div class="sidebar-header">
           <div class="sidebar-title-row">
-            <h2 class="sidebar-title">LISTA DE PONTOS</h2>
+            <h2 class="sidebar-title">PONTOS MONITORADOS</h2>
             <span class="badge-count" id="badge-points-count">1 / 34</span>
           </div>
           
@@ -171,31 +178,31 @@
 
         <!-- Lista de Cards dos Dispositivos -->
         <div class="devices-list" id="devices-list-container">
-          <!-- Card Real do HIDRO-001 (alimentado via JS) -->
-          <div class="device-item-card" id="card-hidro-001">
+          <!-- Card Real do HIDRO-001 -->
+          <div class="device-item-card" id="card-hidro-001" title="Clique para centralizar no mapa">
             <div class="device-item-header">
               <div class="device-id-box">
                 <span class="device-icon">🚰</span>
                 <div>
-                  <h3 class="device-id-title font-mono">HIDRO-001</h3>
-                  <span class="device-desc">Ponto de Medição Hidrômetro DN50</span>
+                  <h3 class="device-friendly-name">RESERVATÓRIO CENTRAL</h3>
+                  <span class="device-tech-code font-mono">HIDRO-001</span>
                 </div>
               </div>
               <span id="hidro-status-pill" class="status-pill status-offline">OFFLINE</span>
             </div>
 
-            <!-- Grade de Métricas do Ponto -->
+            <!-- Grade Executiva de Métricas do Ponto -->
             <div class="device-metrics-grid">
               <div class="device-metric-cell">
-                <span class="cell-label">VAZÃO INSTANTÂNEA</span>
+                <span class="cell-label">VAZÃO ATUAL</span>
                 <span class="cell-value font-mono" id="hidro-flow-recent">-- <span class="unit">L/min</span></span>
                 <span class="cell-sub font-mono" id="hidro-flow-m3h">-- m³/h</span>
               </div>
 
               <div class="device-metric-cell">
-                <span class="cell-label">VOLUME MEDIDO</span>
-                <span class="cell-value font-mono" id="hidro-volume-liters">-- <span class="unit">L</span></span>
-                <span class="cell-sub font-mono" id="hidro-pulses-total">-- pulsos</span>
+                <span class="cell-label">VOLUME ACUMULADO</span>
+                <span class="cell-value font-mono" id="hidro-volume-m3">-- <span class="unit">m³</span></span>
+                <span class="cell-sub font-mono" id="hidro-volume-liters">-- L</span>
               </div>
 
               <div class="device-metric-cell">
@@ -207,37 +214,57 @@
               <div class="device-metric-cell">
                 <span class="cell-label">PASSAGEM DE ÁGUA</span>
                 <span class="cell-value font-mono" id="hidro-session-status">--</span>
-                <span class="cell-sub font-mono" id="hidro-session-detail">Sessão: --</span>
+                <span class="cell-sub font-mono" id="hidro-session-detail">--</span>
               </div>
             </div>
 
-            <!-- Informações de Conexão do Ponto -->
+            <!-- Informações Humanas de Recebimento -->
             <div class="device-footer-info">
               <div class="footer-row">
-                <span class="footer-label">Último envio:</span>
-                <span class="footer-val font-mono" id="hidro-last-received">--:--:--</span>
+                <span class="footer-label">Último recebimento:</span>
+                <span class="footer-val font-mono" id="hidro-last-received-human">--</span>
               </div>
               <div class="footer-row">
-                <span class="footer-label">Sinal Wi-Fi:</span>
-                <span class="footer-val font-mono" id="hidro-rssi">-- dBm</span>
-              </div>
-              <div class="footer-row">
-                <span class="footer-label">Localização:</span>
-                <span class="footer-val font-mono text-warning" id="hidro-geo-status">Pendente de cadastro</span>
+                <span class="footer-label">Horário de envio:</span>
+                <span class="footer-val font-mono" id="hidro-last-received-time">--:--:--</span>
               </div>
             </div>
+
+            <!-- Detalhes Técnicos Secundários (Discretos) -->
+            <div class="device-technical-section">
+              <div class="tech-section-title">DETALHES DO PONTO</div>
+              <div class="tech-grid">
+                <div class="tech-item">
+                  <span class="tech-label">Sinal Wi-Fi:</span>
+                  <span class="tech-val font-mono" id="hidro-rssi">-- dBm</span>
+                </div>
+                <div class="tech-item">
+                  <span class="tech-label">Calibração:</span>
+                  <span class="tech-val font-mono" id="hidro-calib-factor">101.63 L/p</span>
+                </div>
+                <div class="tech-item">
+                  <span class="tech-label">Total Pulsos:</span>
+                  <span class="tech-val font-mono" id="hidro-pulses-total">--</span>
+                </div>
+                <div class="tech-item">
+                  <span class="tech-label">Coordenadas:</span>
+                  <span class="tech-val font-mono text-online" id="hidro-geo-status">-22.778683, -50.220552</span>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
 
         <!-- Rodapé Informativo da Barra Lateral -->
         <div class="sidebar-footer">
-          <p>1 ponto instalado • 33 previstos para futura implantação</p>
+          <p>1 ponto em operação • 33 previstos para expansão</p>
         </div>
       </aside>
 
     </main>
 
-    <!-- BARRA INFERIOR DE STATUS -->
+    <!-- BARRA INFERIOR DE STATUS SCADA -->
     <footer class="scada-footer-bar">
       <div class="footer-status-left">
         <span>SISTEMA SUPERVISÓRIO DE TELEMETRIA HÍDRICA</span>

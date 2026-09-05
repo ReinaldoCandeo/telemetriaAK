@@ -1,13 +1,13 @@
 /* ==========================================================================
-   SCADA INDUSTRIAL SYSTEM DESIGN - MAPA OPERACIONAL DOS PONTOS
-   Visualização Georreferenciada e Supervisório de Telemetria Hídrica
+   SCADA EXECUTIVE SYSTEM DESIGN - MAPA OPERACIONAL DOS PONTOS
+   Centro de Supervisão Georreferenciado • Telemetria Hídrica Palmital/SP
    ========================================================================== */
 
 :root {
-  /* Paleta Base SCADA */
-  --scada-bg: #f1f5f9;
+  /* Paleta Base SCADA Executiva */
+  --scada-bg: #f8fafc;
   --scada-surface: #ffffff;
-  --scada-surface-subtle: #f8fafc;
+  --scada-surface-subtle: #f1f5f9;
   --scada-border: #cbd5e1;
   --scada-border-light: #e2e8f0;
   --scada-border-focus: #0284c7;
@@ -20,20 +20,20 @@
 
   /* Cores de Destaque SCADA */
   --scada-navy: #0f172a;
-  --scada-navy-header: #1e293b;
+  --scada-navy-card: #1e293b;
   --scada-blue: #0284c7;         /* Azul Saneamento */
   --scada-blue-hover: #0369a1;
   --scada-cyan: #06b6d4;
   --scada-cyan-light: #ecfeff;
-  --scada-emerald: #059669;      /* Verde Operacional */
+  --scada-emerald: #10b981;      /* Verde Operacional Online */
   --scada-emerald-bg: #ecfdf5;
-  --scada-amber: #d97706;        /* Amarelo Alerta */
+  --scada-amber: #f59e0b;        /* Amarelo Alerta / Atenção */
   --scada-amber-bg: #fffbeb;
-  --scada-rose: #dc2626;         /* Vermelho Erro */
+  --scada-rose: #ef4444;         /* Vermelho Offline */
   --scada-rose-bg: #fef2f2;
 
   /* Sombras Sutis Industriais */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
 }
@@ -71,21 +71,21 @@ body.auth-loading .map-app-container {
 }
 
 .text-online {
-  color: #10b981 !important;
+  color: var(--scada-emerald) !important;
 }
 
 .text-offline {
-  color: #ef4444 !important;
+  color: var(--scada-rose) !important;
 }
 
 .text-warning {
-  color: #f59e0b !important;
+  color: var(--scada-amber) !important;
 }
 
 /* Container Principal */
 .map-app-container {
   width: 100%;
-  max-width: 1400px;
+  max-width: 1480px;
   background: var(--scada-surface);
   border: 1px solid var(--scada-border);
   border-radius: 12px;
@@ -101,7 +101,7 @@ body.auth-loading .map-app-container {
 .scada-header {
   background: var(--scada-navy);
   color: #ffffff;
-  padding: 1.15rem 1.75rem;
+  padding: 1.1rem 1.75rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -119,8 +119,8 @@ body.auth-loading .map-app-container {
 .scada-brand-icon {
   width: 44px;
   height: 44px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -173,6 +173,7 @@ body.auth-loading .map-app-container {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .header-comm-box {
@@ -251,23 +252,24 @@ body.auth-loading .map-app-container {
   background: rgba(255, 255, 255, 0.2);
 }
 
-.btn-back {
+.btn-tech {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  background: var(--scada-blue);
-  color: #ffffff;
+  background: rgba(2, 132, 199, 0.25);
+  color: #38bdf8;
+  border: 1px solid #0284c7;
   text-decoration: none;
-  padding: 0.45rem 0.95rem;
+  padding: 0.45rem 0.85rem;
   border-radius: 6px;
   font-size: 0.8rem;
   font-weight: 700;
   transition: all 0.2s;
-  box-shadow: 0 2px 4px rgba(2, 132, 199, 0.3);
 }
 
-.btn-back:hover {
-  background: var(--scada-blue-hover);
+.btn-tech:hover {
+  background: var(--scada-blue);
+  color: #ffffff;
 }
 
 .btn-logout {
@@ -292,15 +294,21 @@ body.auth-loading .map-app-container {
 }
 
 /* ==========================================================================
-   2. GRADE SUPERIOR DE MÉTRICAS
+   2. GRADE SUPERIOR DE MÉTRICAS EXECUTIVAS
    ========================================================================== */
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(5, 1fr);
   gap: 1rem;
   padding: 1.25rem 1.5rem;
   background: var(--scada-surface-subtle);
   border-bottom: 1px solid var(--scada-border-light);
+}
+
+@media (max-width: 1200px) {
+  .metrics-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
 }
 
 .metric-card {
@@ -333,14 +341,14 @@ body.auth-loading .map-app-container {
 }
 
 .metric-value {
-  font-size: 1.4rem;
+  font-size: 1.35rem;
   font-weight: 700;
   color: var(--text-heading);
   margin-top: 0.15rem;
 }
 
 .metric-denom {
-  font-size: 1rem;
+  font-size: 0.95rem;
   color: var(--text-subtle);
   font-weight: 500;
 }
@@ -357,14 +365,14 @@ body.auth-loading .map-app-container {
 }
 
 /* ==========================================================================
-   3. ÁREA PRINCIPAL: MAPA + LISTA DE PONTOS
+   3. ÁREA PRINCIPAL: MAPA (70%) + LISTA DE PONTOS (30%)
    ========================================================================== */
 .main-content-grid {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: 7fr 3fr;
   gap: 1.25rem;
   padding: 1.25rem 1.5rem;
-  min-height: 600px;
+  min-height: 620px;
 }
 
 @media (max-width: 1024px) {
@@ -445,13 +453,13 @@ body.auth-loading .map-app-container {
 .map-wrapper {
   position: relative;
   flex: 1;
-  min-height: 480px;
+  min-height: 520px;
 }
 
 #map {
   width: 100%;
   height: 100%;
-  min-height: 480px;
+  min-height: 520px;
   z-index: 1;
 }
 
@@ -598,12 +606,14 @@ body.auth-loading .map-app-container {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
 }
 
 .device-item-card:hover {
   border-color: var(--scada-blue);
   box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .device-item-header {
@@ -622,15 +632,16 @@ body.auth-loading .map-app-container {
   font-size: 1.3rem;
 }
 
-.device-id-title {
-  font-size: 1rem;
+.device-friendly-name {
+  font-size: 0.95rem;
   font-weight: 800;
   color: var(--scada-blue);
 }
 
-.device-desc {
+.device-tech-code {
   font-size: 0.7rem;
   color: var(--text-muted);
+  font-weight: 600;
   display: block;
 }
 
@@ -643,7 +654,19 @@ body.auth-loading .map-app-container {
   letter-spacing: 0.05em;
 }
 
-/* Grade de Métricas no Card Lateral */
+.status-pill.status-online {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+  border: 1px solid #10b981;
+}
+
+.status-pill.status-offline {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+  border: 1px solid #ef4444;
+}
+
+/* Grade Executiva de Métricas no Card Lateral */
 .device-metrics-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -678,13 +701,13 @@ body.auth-loading .map-app-container {
   color: var(--text-muted);
 }
 
-/* Informações de Conexão no Rodapé do Card */
+/* Informações de Recebimento */
 .device-footer-info {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
   border-top: 1px dashed var(--scada-border-light);
-  padding-top: 0.65rem;
+  padding-top: 0.6rem;
 }
 
 .footer-row {
@@ -698,6 +721,48 @@ body.auth-loading .map-app-container {
 }
 
 .footer-val {
+  font-weight: 600;
+  color: var(--text-body);
+}
+
+/* Seção de Detalhes Técnicos Secundários */
+.device-technical-section {
+  background: #f1f5f9;
+  border: 1px solid var(--scada-border-light);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.tech-section-title {
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tech-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem 0.6rem;
+}
+
+.tech-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.tech-label {
+  font-size: 0.6rem;
+  color: var(--text-subtle);
+}
+
+.tech-val {
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--text-body);
 }
@@ -744,4 +809,196 @@ body.auth-loading .map-app-container {
 
 .separator {
   color: #475569;
+}
+
+/* ==========================================================================
+   6. ESTILIZAÇÃO DO MARCADOR & POPUP LEAFLET (SCADA EXECUTIVO)
+   ========================================================================== */
+/* Marcador com Halo Sutil */
+.scada-marker-container {
+  position: relative;
+  width: 24px;
+  height: 24px;
+}
+
+.scada-marker-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2.5px solid #ffffff;
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+  z-index: 2;
+}
+
+.scada-marker-dot.online {
+  background-color: #10b981;
+}
+
+.scada-marker-dot.offline {
+  background-color: #ef4444;
+}
+
+.scada-marker-halo {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0.4;
+  z-index: 1;
+}
+
+.scada-marker-halo.online {
+  background-color: #10b981;
+  animation: scada-pulse 2.2s infinite ease-out;
+}
+
+.scada-marker-halo.offline {
+  display: none;
+}
+
+@keyframes scada-pulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.7;
+  }
+  70% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scada-marker-halo.online {
+    animation: none;
+    transform: scale(1.2);
+    opacity: 0.25;
+  }
+}
+
+/* Tooltip Customizado */
+.leaflet-tooltip.scada-map-tooltip {
+  background: var(--scada-navy);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 0.4rem 0.65rem;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-size: 0.75rem;
+  box-shadow: var(--shadow-md);
+}
+
+.leaflet-tooltip.scada-map-tooltip::before {
+  border-top-color: var(--scada-navy);
+}
+
+/* Popup Leaflet Customizado */
+.leaflet-popup-content-wrapper {
+  background: #ffffff !important;
+  border-radius: 10px !important;
+  border: 1px solid var(--scada-border) !important;
+  box-shadow: var(--shadow-lg) !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.leaflet-popup-content {
+  margin: 0 !important;
+  line-height: 1.4 !important;
+}
+
+.popup-executive-card {
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  min-width: 260px;
+  max-width: 320px;
+  color: #1e293b;
+}
+
+.popup-header {
+  background: var(--scada-navy);
+  color: #ffffff;
+  padding: 0.75rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.popup-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: 0.01em;
+}
+
+.popup-tech-code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  color: #94a3b8;
+  display: block;
+}
+
+.popup-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+}
+
+.popup-badge.online {
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+  border: 1px solid #059669;
+}
+
+.popup-badge.offline {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+  border: 1px solid #dc2626;
+}
+
+.popup-body {
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.popup-metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.78rem;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 0.35rem;
+}
+
+.popup-metric-label {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.popup-metric-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.popup-tech-footer {
+  background: #f8fafc;
+  border-top: 1px solid var(--scada-border-light);
+  padding: 0.6rem 1rem;
+  font-size: 0.68rem;
+  color: #64748b;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
 }
