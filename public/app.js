@@ -1,5 +1,30 @@
 let supabaseClient = null;
-let isLoggingOut = false;
+let authFailureHandling = false;
+let activeIntervals = [];
+
+function registerInterval(fn, ms) {
+  const id = setInterval(fn, ms);
+  activeIntervals.push(id);
+  return id;
+}
+
+function clearAllIntervals() {
+  activeIntervals.forEach(id => clearInterval(id));
+  activeIntervals = [];
+}
+
+async function handleUnauthorizedOnce() {
+  if (authFailureHandling) return;
+  authFailureHandling = true;
+  clearAllIntervals();
+
+  if (supabaseClient) {
+    try { await supabaseClient.auth.signOut(); } catch (e) {}
+  }
+
+  alert('Sessão expirada. Entre novamente.');
+  window.location.replace('/login.html');
+}
 
 // Obter token Bearer para chamadas administrativas
 async function getAdminAccessToken() {
@@ -14,14 +39,21 @@ async function getAdminAccessToken() {
 
 // Wrapper para requisições com Bearer token e tratamento de 401/403
 async function adminFetch(url, options = {}) {
+  if (authFailureHandling) {
+    return new Response(null, { status: 401 });
+  }
+
   const token = await getAdminAccessToken();
+  if (!token) {
+    handleUnauthorizedOnce();
+    return new Response(null, { status: 401 });
+  }
+
   const headers = {
     'Content-Type': 'application/json',
-    ...(options.headers || {})
+    ...(options.headers || {}),
+    'Authorization': `Bearer ${token}`
   };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
 
   const response = await fetch(url, {
     ...options,
@@ -29,27 +61,20 @@ async function adminFetch(url, options = {}) {
   });
 
   if (response.status === 401) {
-    if (!isLoggingOut) {
-      isLoggingOut = true;
-      alert('Sessão expirada. Entre novamente.');
-      if (supabaseClient) {
-        await supabaseClient.auth.signOut();
-      }
-      window.location.replace('/login.html');
-    }
-    throw new Error('Sessão expirada.');
+    handleUnauthorizedOnce();
+    return response;
   }
 
   if (response.status === 403) {
     alert('Você não possui permissão administrativa para esta ação.');
-    throw new Error('Você não possui permissão administrativa para esta ação.');
+    return response;
   }
 
   return response;
 }
 
 // Inicializa e valida a sessão do Administrador antes de liberar a tela
-async function initAuthGuard() {
+async function bootstrapAdmin() {
   try {
     const cfgRes = await fetch('/api/auth/config', { cache: 'no-store' });
     if (!cfgRes.ok) {
@@ -57,21 +82,23 @@ async function initAuthGuard() {
       return false;
     }
     const cfg = await cfgRes.json();
-    if (!cfg.ok || !cfg.supabase_url || !cfg.supabase_publishable_key || !window.supabase) {
+    const key = cfg.supabase_publishable_key || cfg.supabase_anon_key;
+    if (!cfg.ok || !cfg.supabase_url || !key || !window.supabase) {
       window.location.replace('/login.html');
       return false;
     }
 
-    supabaseClient = window.supabase.createClient(cfg.supabase_url, cfg.supabase_publishable_key);
+    supabaseClient = window.supabase.createClient(cfg.supabase_url, key);
 
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    if (!session?.user) {
+    const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
+    if (sessionError || !session?.access_token) {
       window.location.replace('/login.html');
       return false;
     }
 
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
+      if (supabaseClient) await supabaseClient.auth.signOut().catch(() => {});
       window.location.replace('/login.html');
       return false;
     }
@@ -84,7 +111,7 @@ async function initAuthGuard() {
       window.location.replace('/mapa.html');
       return false;
     } else {
-      await supabaseClient.auth.signOut();
+      if (supabaseClient) await supabaseClient.auth.signOut().catch(() => {});
       window.location.replace('/login.html');
       return false;
     }
@@ -97,17 +124,22 @@ async function initAuthGuard() {
 
 // Inicia aplicação e polling após autenticação validada
 async function startApp() {
-  const isAuth = await initAuthGuard();
-  if (isAuth) {
-    fetchLatestTelemetry();
-    fetchTelemetryHistory();
-    fetchFlowSessions();
-    fetchFlowChart24h();
+  const isAuth = await bootstrapAdmin();
+  if (isAuth && !authFailureHandling) {
+    await Promise.allSettled([
+      fetchLatestTelemetry(),
+      fetchTelemetryHistory(),
+      fetchFlowSessions(),
+      fetchFlowChart24h()
+    ]);
 
-    setInterval(fetchLatestTelemetry, 1000);
-    setInterval(fetchTelemetryHistory, 2000);
-    setInterval(fetchFlowSessions, 15000);
-    setInterval(fetchFlowChart24h, 60000);
+    if (!authFailureHandling) {
+      registerInterval(fetchLatestTelemetry, 1000);
+      registerInterval(fetchTelemetryHistory, 2000);
+      registerInterval(fetchFlowSessions, 15000);
+      registerInterval(fetchFlowChart24h, 60000);
+      registerInterval(updateRelativeTimeDisplay, 1000);
+    }
   }
 }
 
@@ -117,8 +149,10 @@ startApp();
 const btnLogout = document.getElementById('btn-logout');
 if (btnLogout) {
   btnLogout.addEventListener('click', async () => {
+    authFailureHandling = true;
+    clearAllIntervals();
     if (supabaseClient) {
-      await supabaseClient.auth.signOut();
+      try { await supabaseClient.auth.signOut(); } catch (e) {}
     }
     window.location.replace('/login.html');
   });
@@ -543,9 +577,6 @@ function updateRelativeTimeDisplay() {
     valLastPulseRelative.textContent = formatRelativeTime(currentLastPulseAt);
   }
 }
-
-// Update relative time text every second
-setInterval(updateRelativeTimeDisplay, 1000);
 
 async function fetchFlowSummary() {
   try {

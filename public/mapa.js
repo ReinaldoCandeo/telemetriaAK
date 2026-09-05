@@ -17,11 +17,36 @@ const POINTS_CONFIG = [
 
 // 2. Estado Global e Auth
 let supabaseClient = null;
-let isLoggingOut = false;
+let authFailureHandling = false;
+let activeIntervals = [];
 let map = null;
 let marker = null;
 let currentFilter = 'all';
 let searchQuery = '';
+
+function registerInterval(fn, ms) {
+  const id = setInterval(fn, ms);
+  activeIntervals.push(id);
+  return id;
+}
+
+function clearAllIntervals() {
+  activeIntervals.forEach(id => clearInterval(id));
+  activeIntervals = [];
+}
+
+async function handleUnauthorizedOnce() {
+  if (authFailureHandling) return;
+  authFailureHandling = true;
+  clearAllIntervals();
+
+  if (supabaseClient) {
+    try { await supabaseClient.auth.signOut(); } catch (e) {}
+  }
+
+  alert('Sessão expirada. Entre novamente.');
+  window.location.replace('/login.html');
+}
 
 let telemetryCache = null;
 let systemSummaryCache = null;
@@ -72,15 +97,15 @@ const barLastRefresh = document.getElementById('bar-last-refresh');
 
 // 3. Helper de Fetch Autenticado para o Mapa
 async function apiFetch(url, options = {}) {
-  if (isLoggingOut) return new Response(null, { status: 401 });
+  if (authFailureHandling) return new Response(null, { status: 401 });
   if (!supabaseClient) {
-    handleAuthError();
+    handleUnauthorizedOnce();
     return new Response(null, { status: 401 });
   }
 
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (!session?.access_token) {
-    handleAuthError();
+    handleUnauthorizedOnce();
     return new Response(null, { status: 401 });
   }
 
@@ -92,35 +117,16 @@ async function apiFetch(url, options = {}) {
   const response = await fetch(url, { ...options, headers });
 
   if (response.status === 401) {
-    handleAuthError();
+    handleUnauthorizedOnce();
     return response;
   }
 
   if (response.status === 403) {
-    handleForbiddenError();
+    alert('Você não possui permissão para visualizar a telemetria.');
     return response;
   }
 
   return response;
-}
-
-async function handleAuthError() {
-  if (isLoggingOut) return;
-  isLoggingOut = true;
-  if (supabaseClient) {
-    try { await supabaseClient.auth.signOut(); } catch (e) {}
-  }
-  window.location.replace('/login.html');
-}
-
-async function handleForbiddenError() {
-  if (isLoggingOut) return;
-  isLoggingOut = true;
-  alert('Usuário sem permissão para visualizar a telemetria.');
-  if (supabaseClient) {
-    try { await supabaseClient.auth.signOut(); } catch (e) {}
-  }
-  window.location.replace('/login.html');
 }
 
 // 4. Inicialização do Mapa Leaflet
@@ -472,6 +478,8 @@ function setupEventListeners() {
 
   if (btnLogout) {
     btnLogout.addEventListener('click', async () => {
+      authFailureHandling = true;
+      clearAllIntervals();
       if (supabaseClient) {
         try { await supabaseClient.auth.signOut(); } catch (e) {}
       }
@@ -525,7 +533,7 @@ async function initAuthAndApp() {
     }
     const cfg = await cfgRes.json();
     const key = cfg.supabase_publishable_key || cfg.supabase_anon_key;
-    if (!cfg.supabase_url || !key) {
+    if (!cfg.ok || !cfg.supabase_url || !key || !window.supabase) {
       window.location.replace('/login.html');
       return;
     }
@@ -534,7 +542,7 @@ async function initAuthAndApp() {
 
     // B. Obter Sessão
     const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
-    if (sessionError || !session) {
+    if (sessionError || !session?.access_token) {
       window.location.replace('/login.html');
       return;
     }
@@ -542,14 +550,14 @@ async function initAuthAndApp() {
     // C. Validar Usuário e Role
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
-      await supabaseClient.auth.signOut();
+      if (supabaseClient) await supabaseClient.auth.signOut().catch(() => {});
       window.location.replace('/login.html');
       return;
     }
 
     const role = user.app_metadata?.role;
     if (role !== 'admin' && role !== 'viewer') {
-      await supabaseClient.auth.signOut();
+      if (supabaseClient) await supabaseClient.auth.signOut().catch(() => {});
       window.location.replace('/login.html');
       return;
     }
@@ -568,13 +576,18 @@ async function initAuthAndApp() {
     initMap();
     setupEventListeners();
 
-    // G. Carga Inicial de Dados
-    fetchTelemetryData();
-    fetchSessionsData();
+    // G. Carga Inicial de Dados e Início de Polling Gerenciado
+    if (!authFailureHandling) {
+      await Promise.allSettled([
+        fetchTelemetryData(),
+        fetchSessionsData()
+      ]);
 
-    // H. Polling
-    setInterval(fetchTelemetryData, 5000);
-    setInterval(fetchSessionsData, 15000);
+      if (!authFailureHandling) {
+        registerInterval(fetchTelemetryData, 5000);
+        registerInterval(fetchSessionsData, 15000);
+      }
+    }
 
   } catch (err) {
     console.error('Erro na inicialização de autenticação do mapa:', err);

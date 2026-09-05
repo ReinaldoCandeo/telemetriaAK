@@ -7,17 +7,21 @@ async function initSupabaseClient() {
     if (!res.ok) return null;
     const cfg = await res.json();
 
-    if (cfg.ok && cfg.supabase_url && cfg.supabase_publishable_key && window.supabase) {
-      supabaseClient = window.supabase.createClient(cfg.supabase_url, cfg.supabase_publishable_key);
+    const key = cfg.supabase_publishable_key || cfg.supabase_anon_key;
+    if (cfg.ok && cfg.supabase_url && key && window.supabase) {
+      supabaseClient = window.supabase.createClient(cfg.supabase_url, key);
       
-      // Verificar se já existe sessão ativa ao carregar a tela
+      // Verificar se já existe sessão ativa e válida ao carregar a tela
       const { data: { session } } = await supabaseClient.auth.getSession();
-      if (session?.user) {
-        const role = session.user.app_metadata?.role;
+      if (session?.user && session?.access_token) {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        const role = user?.app_metadata?.role;
         if (role === 'admin') {
-          window.location.href = '/';
+          window.location.replace('/');
+          return;
         } else if (role === 'viewer') {
-          window.location.href = '/mapa.html';
+          window.location.replace('/mapa.html');
+          return;
         }
       }
     }
@@ -94,7 +98,7 @@ async function handleLogin(email, password) {
     }
 
     if (!supabaseClient) {
-      showError('Chave pública Supabase (ANON) pendente de configuração.');
+      showError('Chave pública Supabase pendente de configuração.');
       setLoading(false);
       return;
     }
@@ -105,23 +109,29 @@ async function handleLogin(email, password) {
       password: password
     });
 
-    if (error || !data?.user) {
+    if (error || !data?.user || !data?.session) {
       showError('E-mail ou senha inválidos.');
       setLoading(false);
       return;
     }
 
-    const user = data.user;
+    // Validação estrita do usuário autenticado
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+    if (userError || !user) {
+      showError('Erro ao validar perfil de usuário.');
+      setLoading(false);
+      return;
+    }
     
     // Obtenção da Role oficial em app_metadata (fonte segura)
     const role = user.app_metadata?.role;
 
     if (role === 'admin') {
       // ADMIN -> Dashboard Principal
-      window.location.href = '/';
+      window.location.replace('/');
     } else if (role === 'viewer') {
       // VIEWER -> Mapa Operacional
-      window.location.href = '/mapa.html';
+      window.location.replace('/mapa.html');
     } else {
       // Role não autorizada / inexistente -> desconectar imediatamente
       await supabaseClient.auth.signOut();
