@@ -42,36 +42,70 @@ function setLoading(isLoading) {
   }
 }
 
+// Utilitário para confirmar persistência de sessão antes de navegar
+async function confirmPersistedSession(maxAttempts = 3) {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      if (!supabaseClient) return null;
+      const { data: { session }, error } = await supabaseClient.auth.getSession();
+      if (!error && session?.access_token) return session;
+    } catch (e) {}
+    if (i < maxAttempts - 1) {
+      await new Promise(r => setTimeout(r, 100 * (i + 1)));
+    }
+  }
+  return null;
+}
+
+// Carregar configuração do servidor com retries curtos
+async function loadAuthConfigWithRetry(maxAttempts = 3) {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const res = await fetch('/api/auth/config', { cache: 'no-store' });
+      if (res.ok) {
+        const cfg = await res.json();
+        const key = cfg.supabase_publishable_key || cfg.supabase_anon_key;
+        if (cfg.ok && cfg.supabase_url && key && window.supabase) {
+          return { cfg, key };
+        }
+      }
+    } catch (e) {}
+    if (i < maxAttempts - 1) {
+      await new Promise(r => setTimeout(r, 150 * Math.pow(2, i)));
+    }
+  }
+  return null;
+}
+
 // Inicializa o cliente Supabase buscando configuração pública do servidor
 async function initSupabaseClient() {
   try {
-    const res = await fetch('/api/auth/config', { cache: 'no-store' });
-    if (!res.ok) return null;
-    const cfg = await res.json();
+    const authConfig = await loadAuthConfigWithRetry(3);
+    if (!authConfig) return null;
+    const { cfg, key } = authConfig;
 
-    const key = cfg.supabase_publishable_key || cfg.supabase_anon_key;
-    if (cfg.ok && cfg.supabase_url && key && window.supabase) {
-      supabaseClient = window.supabase.createClient(cfg.supabase_url, key);
-      
-      // Se veio com ?expired=1, limpar sessão residual localmente e bloquear auto-login
-      if (forceReauth) {
-        try {
-          await supabaseClient.auth.signOut({ scope: 'local' });
-        } catch (e) {
-          try { await supabaseClient.auth.signOut(); } catch (err) {}
-        }
-        showError('Sua sessão expirou. Entre novamente.');
-        if (window.history && window.history.replaceState) {
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
-        return;
+    supabaseClient = window.supabase.createClient(cfg.supabase_url, key);
+    
+    // Se veio com ?expired=1, limpar sessão residual localmente e bloquear auto-login
+    if (forceReauth) {
+      try {
+        await supabaseClient.auth.signOut({ scope: 'local' });
+      } catch (e) {
+        try { await supabaseClient.auth.signOut(); } catch (err) {}
       }
+      showError('Sua sessão expirou. Entre novamente.');
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+      return;
+    }
 
-      // Se NÃO for forceReauth, verificar se já existe sessão ativa e válida ao carregar a tela
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if (session?.user && session?.access_token) {
-        const { data: { user } } = await supabaseClient.auth.getUser();
-        const role = user?.app_metadata?.role;
+    // Se NÃO for forceReauth, verificar se já existe sessão ativa e válida ao carregar a tela
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session?.user && session?.access_token) {
+      const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+      if (!userError && user) {
+        const role = user.app_metadata?.role;
         if (role === 'admin') {
           window.location.replace('/');
           return;
@@ -79,6 +113,9 @@ async function initSupabaseClient() {
           window.location.replace('/mapa.html');
           return;
         }
+      } else if (userError) {
+        // Se a sessão existente for comprovadamente inválida, limpa para evitar estado zumbi
+        try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (e) {}
       }
     }
   } catch (err) {
@@ -130,33 +167,35 @@ async function handleLogin(email, password) {
       password: password
     });
 
-    if (error || !data?.user || !data?.session) {
+    if (error || !data?.user || !data?.session?.access_token) {
       showError('E-mail ou senha inválidos.');
       isSubmitting = false;
       setLoading(false);
       return;
     }
 
-    // Validação estrita do usuário autenticado
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
-    if (userError || !user) {
-      showError('Erro ao validar perfil de usuário.');
+    // Confirmar que a sessão está gravada no storage antes de redirecionar
+    const confirmedSession = await confirmPersistedSession(3);
+    if (!confirmedSession) {
+      try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (e) {}
+      showError('Não foi possível concluir a sessão. Tente entrar novamente.');
       isSubmitting = false;
       setLoading(false);
       return;
     }
-    
+
     // Obtenção da Role oficial em app_metadata (fonte segura)
-    const role = user.app_metadata?.role;
+    let role = data.user.app_metadata?.role;
+    if (!role) {
+      const { data: userData } = await supabaseClient.auth.getUser().catch(() => ({ data: {} }));
+      role = userData?.user?.app_metadata?.role;
+    }
 
     if (role === 'admin') {
-      // ADMIN -> Dashboard Principal (mantém isSubmitting = true durante navegação)
       window.location.replace('/');
     } else if (role === 'viewer') {
-      // VIEWER -> Mapa Operacional (mantém isSubmitting = true durante navegação)
       window.location.replace('/mapa.html');
     } else {
-      // Role não autorizada / inexistente -> desconectar imediatamente
       try {
         await supabaseClient.auth.signOut({ scope: 'local' });
       } catch (e) {

@@ -127,36 +127,131 @@ async function adminFetch(url, options = {}, isRetry = false) {
   return response;
 }
 
+// Carregar configuração pública com retries curtos limitados
+async function loadAuthConfigWithRetry(maxAttempts = 3) {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const res = await fetch('/api/auth/config', { cache: 'no-store' });
+      if (res.ok) {
+        const cfg = await res.json();
+        const key = cfg.supabase_publishable_key || cfg.supabase_anon_key;
+        if (cfg.ok && cfg.supabase_url && key && window.supabase) {
+          return { cfg, key };
+        }
+      }
+    } catch (err) {}
+    if (i < maxAttempts - 1) {
+      await new Promise(r => setTimeout(r, 150 * Math.pow(2, i)));
+    }
+  }
+  return null;
+}
+
+// Obter sessão com retry curto para absorver latência de storage em mobile
+async function getSessionWithShortRetry(client, maxAttempts = 3) {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const { data, error } = await client.auth.getSession();
+      if (!error && data?.session?.access_token) {
+        return data.session;
+      }
+    } catch (e) {}
+    if (i < maxAttempts - 1) {
+      await new Promise(r => setTimeout(r, 100 * (i + 1)));
+    }
+  }
+  return null;
+}
+
+// Obter usuário distinguindo erro transitório de rede vs falha definitiva de autenticação
+async function getUserWithRetry(client, maxAttempts = 2) {
+  let lastError = null;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const { data, error } = await client.auth.getUser();
+      if (!error && data?.user) {
+        return { user: data.user, isAuthError: false, error: null };
+      }
+      if (error) {
+        const isAuth = error.status === 401 || error.status === 400 || (error.message && /token|auth|expired|invalid/i.test(error.message));
+        if (isAuth) {
+          return { user: null, isAuthError: true, error };
+        }
+        lastError = error;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+    if (i < maxAttempts - 1) {
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+  return { user: null, isAuthError: false, error: lastError };
+}
+
 // Inicializa e valida a sessão do Administrador antes de liberar a tela
 async function bootstrapAdmin() {
   try {
-    const cfgRes = await fetch('/api/auth/config', { cache: 'no-store' });
-    if (!cfgRes.ok) {
-      window.location.replace('/login.html');
-      return false;
-    }
-    const cfg = await cfgRes.json();
-    const key = cfg.supabase_publishable_key || cfg.supabase_anon_key;
-    if (!cfg.ok || !cfg.supabase_url || !key || !window.supabase) {
-      window.location.replace('/login.html');
+    // 1. Carregar configuração com retry limitado (falhas de rede/5xx NÃO deslogam)
+    const authConfig = await loadAuthConfigWithRetry(3);
+    if (!authConfig) {
+      console.error('Falha de comunicação ao obter configuração de autenticação.');
+      document.body.classList.remove('auth-loading');
+      alert('Não foi possível conectar ao servidor de autenticação. Verifique sua conexão e recarregue a página.');
       return false;
     }
 
+    const { cfg, key } = authConfig;
     supabaseClient = window.supabase.createClient(cfg.supabase_url, key);
 
-    const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
-    if (sessionError || !session?.access_token) {
+    // 2. Obter sessão com retries curtos (evitar falso vazio no mobile)
+    const session = await getSessionWithShortRetry(supabaseClient, 3);
+    if (!session) {
+      // Sessão comprovadamente ausente: limpeza local defensiva antes de redirecionar
+      try {
+        await supabaseClient.auth.signOut({ scope: 'local' });
+      } catch (e) {
+        try { await supabaseClient.auth.signOut(); } catch (err) {}
+      }
       window.location.replace('/login.html');
       return false;
     }
 
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
-    if (userError || !user) {
-      if (supabaseClient) await supabaseClient.auth.signOut().catch(() => { });
-      window.location.replace('/login.html');
-      return false;
+    // 3. Obter usuário e validar token
+    let { user, isAuthError } = await getUserWithRetry(supabaseClient, 2);
+
+    if (isAuthError || (!user && !isAuthError)) {
+      // Tentar refresh de sessão antes de concluir se é irrecuperável
+      const newToken = await tryRefreshSession();
+      if (newToken) {
+        const retryUser = await getUserWithRetry(supabaseClient, 1);
+        if (retryUser.user) {
+          user = retryUser.user;
+          isAuthError = false;
+        }
+      }
     }
 
+    if (!user) {
+      if (isAuthError) {
+        // Token inválido/expirado e sem recuperação: signOut local + login?expired=1
+        try {
+          await supabaseClient.auth.signOut({ scope: 'local' });
+        } catch (e) {
+          try { await supabaseClient.auth.signOut(); } catch (err) {}
+        }
+        window.location.replace('/login.html?expired=1');
+        return false;
+      } else {
+        // Erro temporário de rede: não redirecionar para login em loop
+        console.warn('Falha temporária de rede ao validar usuário.');
+        document.body.classList.remove('auth-loading');
+        alert('Instabilidade temporária de rede ao validar a sessão. Recarregue a página.');
+        return false;
+      }
+    }
+
+    // 4. Validação de Role
     const role = user.app_metadata?.role;
     if (role === 'admin') {
       document.body.classList.remove('auth-loading');
@@ -165,13 +260,18 @@ async function bootstrapAdmin() {
       window.location.replace('/mapa.html');
       return false;
     } else {
-      if (supabaseClient) await supabaseClient.auth.signOut().catch(() => { });
+      try {
+        await supabaseClient.auth.signOut({ scope: 'local' });
+      } catch (e) {
+        try { await supabaseClient.auth.signOut(); } catch (err) {}
+      }
       window.location.replace('/login.html');
       return false;
     }
   } catch (err) {
-    console.error('Erro na verificação de autenticação:', err);
-    window.location.replace('/login.html');
+    console.error('Erro inesperado na verificação de autenticação:', err);
+    document.body.classList.remove('auth-loading');
+    alert('Erro inesperado ao inicializar autenticação. Recarregue a página.');
     return false;
   }
 }
