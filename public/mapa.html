@@ -264,6 +264,39 @@
 
     </main>
 
+    <!-- SEÇÃO EXECUTIVA: COMPORTAMENTO DA VAZÃO (24H) -->
+    <section class="map-flow-section">
+      <div class="map-flow-header">
+        <div class="map-flow-title-group">
+          <div class="map-flow-icon">📈</div>
+          <div>
+            <h2 class="map-flow-title">COMPORTAMENTO DA VAZÃO — ÚLTIMAS 24H</h2>
+            <p class="map-flow-subtitle">Evolução da vazão média registrada no ponto monitorado</p>
+          </div>
+        </div>
+
+        <div class="map-flow-status-group">
+          <div class="session-status-badge status-offline" id="map-session-status-badge">
+            <span class="status-dot"></span>
+            <span id="map-session-status-text">SEM PASSAGEM</span>
+          </div>
+          <span class="map-flow-relative-time" id="map-val-last-pulse-relative">Nenhum pulso registrado</span>
+        </div>
+      </div>
+
+      <div class="map-flow-chart-wrapper" id="map-chart-flow-wrapper">
+        <div id="map-chart-flow-empty" class="map-chart-empty">
+          <span class="empty-icon">💧</span>
+          <span class="empty-title">AGUARDANDO DADOS DE VAZÃO</span>
+          <span class="empty-sub">A vazão das últimas 24 horas será desenhada após a captura dos primeiros pulsos válidos.</span>
+        </div>
+        <svg id="map-chart-flow-svg" class="map-chart-svg hidden" viewBox="0 0 700 240">
+          <!-- Desenhado dinamicamente via mapa.js -->
+        </svg>
+        <div id="map-flow-chart-tooltip" class="map-flow-chart-tooltip"></div>
+      </div>
+    </section>
+
     <!-- BARRA INFERIOR DE STATUS SCADA -->
     <footer class="scada-footer-bar">
       <div class="footer-status-left">

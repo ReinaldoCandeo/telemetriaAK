@@ -116,6 +116,14 @@ const hidroPulsesTotal = document.getElementById('hidro-pulses-total');
 const hidroGeoStatus = document.getElementById('hidro-geo-status');
 const geoNotice = document.getElementById('geo-notice');
 
+// Elementos do DOM - Gráfico 24h Executivo
+const mapChartFlowWrapper = document.getElementById('map-chart-flow-wrapper');
+const mapChartFlowEmpty = document.getElementById('map-chart-flow-empty');
+const mapChartFlowSvg = document.getElementById('map-chart-flow-svg');
+const mapSessionStatusBadge = document.getElementById('map-session-status-badge');
+const mapSessionStatusText = document.getElementById('map-session-status-text');
+const mapValLastPulseRelative = document.getElementById('map-val-last-pulse-relative');
+
 // Filtros e Busca
 const inputSearch = document.getElementById('input-search');
 const filterTabs = document.querySelectorAll('.filter-tab');
@@ -591,8 +599,22 @@ function updateUI() {
     }
   }
 
-  if (barLastRefresh) {
-    barLastRefresh.textContent = new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  // F. Gráfico 24h Header Status Badge & Relative Time
+  if (mapSessionStatusBadge && mapSessionStatusText) {
+    const sum = sessionsCache?.summary;
+    const hasOpen = sum && sum.open_session;
+    if (hasOpen) {
+      mapSessionStatusBadge.className = 'session-status-badge status-online';
+      mapSessionStatusText.textContent = 'PASSAGEM';
+    } else {
+      mapSessionStatusBadge.className = 'session-status-badge status-offline';
+      mapSessionStatusText.textContent = 'SEM PASSAGEM';
+    }
+  }
+
+  if (mapValLastPulseRelative) {
+    const lastPulseAt = flowSummaryCache?.last_pulse_at || sessionsCache?.summary?.latest_session?.last_pulse_at;
+    mapValLastPulseRelative.textContent = lastPulseAt ? formatHumanRelativeTime(lastPulseAt) : 'Nenhum pulso registrado';
   }
 }
 
@@ -633,12 +655,341 @@ function applyFilters(isOnline) {
   }
 }
 
-// 10. Setup Event Listeners
+// 10. Funções do Gráfico 24h Executivo (Comportamento da Vazão)
+function calculateNiceTicks(maxValue, targetTicks = 5) {
+  if (typeof maxValue !== 'number' || isNaN(maxValue) || maxValue <= 0) {
+    return [0, 10, 20, 30, 40, 50];
+  }
+
+  const rawStep = maxValue / (targetTicks - 1);
+  const exponent = Math.floor(Math.log10(rawStep));
+  const magnitude = Math.pow(10, exponent);
+  const fraction = rawStep / magnitude;
+
+  let niceFraction;
+  if (fraction <= 1.25) {
+    niceFraction = 1;
+  } else if (fraction <= 2.25) {
+    niceFraction = 2;
+  } else if (fraction <= 3.5) {
+    niceFraction = 2.5;
+  } else if (fraction <= 7.5) {
+    niceFraction = 5;
+  } else {
+    niceFraction = 10;
+  }
+
+  const step = niceFraction * magnitude;
+  const niceMax = Math.ceil(maxValue / step) * step;
+
+  const ticks = [];
+  const count = Math.round(niceMax / step);
+  for (let i = 0; i <= count; i++) {
+    const val = i * step;
+    ticks.push(Math.round(val * 100) / 100);
+  }
+
+  if (ticks.length < 2) {
+    return [0, Math.max(10, niceMax)];
+  }
+  return ticks;
+}
+
+let cachedMapFlowChartPoints = [];
+
+function handleMapFlowChartInteraction(e) {
+  if (!mapChartFlowSvg || !cachedMapFlowChartPoints || cachedMapFlowChartPoints.length === 0) return;
+  const flowTooltip = document.getElementById('map-flow-chart-tooltip');
+  const interactiveGroup = document.getElementById('map-flow-interactive-group');
+  const guideline = document.getElementById('map-flow-guideline');
+  const highlightPoint = document.getElementById('map-flow-point-highlight');
+  const highlightRing = document.getElementById('map-flow-point-ring');
+
+  const rect = mapChartFlowSvg.getBoundingClientRect();
+  if (rect.width === 0) return;
+
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+
+  // Normalizar coordenada X para o viewBox 0..700
+  const svgX = ((clientX - rect.left) / rect.width) * 700;
+
+  // Encontrar o ponto/bucket mais próximo entre os 288
+  let closest = cachedMapFlowChartPoints[0];
+  let minDiff = Math.abs(svgX - closest.x);
+  for (let i = 1; i < cachedMapFlowChartPoints.length; i++) {
+    const diff = Math.abs(svgX - cachedMapFlowChartPoints[i].x);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = cachedMapFlowChartPoints[i];
+    }
+  }
+
+  if (!closest) return;
+
+  const bottomY = 205;
+  const targetY = closest.y !== null ? closest.y : bottomY;
+
+  // Atualizar marcador e linha vertical no SVG
+  if (interactiveGroup && guideline && highlightPoint && highlightRing) {
+    guideline.setAttribute('x1', closest.x.toFixed(1));
+    guideline.setAttribute('x2', closest.x.toFixed(1));
+    highlightPoint.setAttribute('cx', closest.x.toFixed(1));
+    highlightPoint.setAttribute('cy', targetY.toFixed(1));
+    highlightRing.setAttribute('cx', closest.x.toFixed(1));
+    highlightRing.setAttribute('cy', targetY.toFixed(1));
+
+    let color = '#0284c7';
+    if (closest.status === 'insufficient_data') color = '#f59e0b';
+    else if (closest.status === 'no_flow') color = '#94a3b8';
+
+    highlightPoint.setAttribute('fill', color);
+    highlightRing.setAttribute('stroke', color);
+    guideline.setAttribute('stroke', color);
+
+    interactiveGroup.style.display = '';
+  }
+
+  // Atualizar Tooltip HTML
+  if (flowTooltip && mapChartFlowWrapper) {
+    let statusText = 'SEM PASSAGEM';
+    let statusClass = 'status-no-flow';
+    if (closest.status === 'flow') {
+      statusText = 'PASSAGEM';
+      statusClass = 'status-flow';
+    } else if (closest.status === 'insufficient_data') {
+      statusText = 'DADOS INSUFICIENTES';
+      statusClass = 'status-insufficient';
+    }
+
+    let flowAvgStr = '--';
+    if (closest.status === 'flow' && typeof closest.flow_lpm === 'number') {
+      flowAvgStr = `${closest.flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`;
+    } else if (closest.status === 'no_flow') {
+      flowAvgStr = '0,0 L/min';
+    }
+
+    let flowMaxStr = '--';
+    if (typeof closest.max_flow_lpm === 'number' && closest.max_flow_lpm > 0) {
+      flowMaxStr = `${closest.max_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`;
+    } else if (closest.status === 'flow' && typeof closest.flow_lpm === 'number') {
+      flowMaxStr = `${closest.flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`;
+    } else if (closest.status === 'no_flow') {
+      flowMaxStr = '0,0 L/min';
+    }
+
+    const volStr = typeof closest.volume_liters === 'number'
+      ? `${closest.volume_liters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} L`
+      : '--';
+
+    const pulseStr = typeof closest.pulse_count === 'number'
+      ? `${closest.pulse_count.toLocaleString('pt-BR')}`
+      : '--';
+
+    flowTooltip.innerHTML = `
+      <div class="tt-header">
+        <span class="tt-date">${closest.timeLabel || '--'}</span>
+        <span class="tt-status ${statusClass}">${statusText}</span>
+      </div>
+      <div class="tt-row"><span class="tt-label">Vazão Média:</span><span class="tt-val" style="color:#38bdf8;">${flowAvgStr}</span></div>
+      <div class="tt-row"><span class="tt-label">PICO NO INTERVALO:</span><span class="tt-val">${flowMaxStr}</span></div>
+      <div class="tt-row"><span class="tt-label">Volume:</span><span class="tt-val">${volStr}</span></div>
+      <div class="tt-row"><span class="tt-label">Pulsos:</span><span class="tt-val">${pulseStr}</span></div>
+      <div class="tt-hint">Média do intervalo de 5 min</div>
+    `;
+
+    const wrapperRect = mapChartFlowWrapper.getBoundingClientRect();
+    const xInWrapper = clientX - wrapperRect.left;
+    const yInWrapper = (targetY / 240) * wrapperRect.height;
+
+    flowTooltip.style.left = `${Math.max(130, Math.min(wrapperRect.width - 130, xInWrapper))}px`;
+    flowTooltip.style.top = `${Math.max(40, yInWrapper)}px`;
+    flowTooltip.classList.add('visible');
+  }
+}
+
+function hideMapFlowChartInteraction() {
+  const flowTooltip = document.getElementById('map-flow-chart-tooltip');
+  const interactiveGroup = document.getElementById('map-flow-interactive-group');
+  if (flowTooltip) flowTooltip.classList.remove('visible');
+  if (interactiveGroup) interactiveGroup.style.display = 'none';
+}
+
+async function fetchFlowChart24h() {
+  if (authFailureHandling) return;
+  try {
+    const res = await apiFetch('/api/telemetry/flow-chart-24h', { cache: 'no-store' });
+    if (res && res.ok) {
+      const j = await res.json();
+      if (j.ok) {
+        renderMapFlowChart(j.data || []);
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao buscar dados do gráfico 24h no mapa:', err);
+  }
+}
+
+function renderMapFlowChart(chartBuckets) {
+  if (!mapChartFlowSvg || !mapChartFlowEmpty) return;
+
+  if (!Array.isArray(chartBuckets) || chartBuckets.length === 0) {
+    mapChartFlowEmpty.classList.remove('hidden');
+    mapChartFlowSvg.classList.add('hidden');
+    cachedMapFlowChartPoints = [];
+    return;
+  }
+
+  mapChartFlowEmpty.classList.add('hidden');
+  mapChartFlowSvg.classList.remove('hidden');
+
+  const width = 700;
+  const height = 240;
+  const padLeft = 75;
+  const padRight = 25;
+  const padTop = 20;
+  const padBottom = 35;
+  const chartW = width - padLeft - padRight;
+  const chartH = height - padTop - padBottom;
+  const bottomY = height - padBottom; // 205
+  const topY = padTop; // 20
+
+  // Obter maior vazão válida baseada SOMENTE em flow_lpm para definir escala do eixo Y
+  const flowVals = chartBuckets
+    .filter(b => typeof b.flow_lpm === 'number' && b.flow_lpm > 0)
+    .map(b => b.flow_lpm);
+
+  const rawMax = flowVals.length > 0 ? Math.max(...flowVals) : 50;
+  const ticks = calculateNiceTicks(rawMax, 5);
+  const niceMax = ticks[ticks.length - 1] || 50;
+
+  const total = chartBuckets.length;
+
+  const points = chartBuckets.map((b, idx) => {
+    const x = total > 1
+      ? padLeft + (idx / (total - 1)) * chartW
+      : padLeft + chartW / 2;
+
+    let y = null;
+    if (typeof b.flow_lpm === 'number') {
+      y = bottomY - (Math.max(0, b.flow_lpm) / niceMax) * chartH;
+    }
+
+    const recDate = b.timestamp
+      ? new Date(b.timestamp)
+      : (b.bucket_start ? new Date(b.bucket_start) : null);
+
+    const timeLabel = recDate
+      ? recDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+      : '';
+
+    return { ...b, x, y, timeLabel, idx };
+  });
+
+  cachedMapFlowChartPoints = points;
+
+  // Dividir em segmentos contínuos com valores numéricos (ignora gaps de insufficient_data)
+  const segments = [];
+  let currentSeg = [];
+
+  points.forEach(p => {
+    if (p.y !== null) {
+      currentSeg.push(p);
+    } else {
+      if (currentSeg.length > 0) {
+        segments.push(currentSeg);
+        currentSeg = [];
+      }
+    }
+  });
+  if (currentSeg.length > 0) {
+    segments.push(currentSeg);
+  }
+
+  let pathsSvg = '';
+  segments.forEach(seg => {
+    let pathD = '';
+    let areaD = '';
+    if (seg.length === 1) {
+      pathD = `M ${(seg[0].x - 1.5).toFixed(1)} ${seg[0].y.toFixed(1)} L ${(seg[0].x + 1.5).toFixed(1)} ${seg[0].y.toFixed(1)}`;
+      areaD = `M ${(seg[0].x - 1.5).toFixed(1)} ${bottomY} L ${(seg[0].x - 1.5).toFixed(1)} ${seg[0].y.toFixed(1)} L ${(seg[0].x + 1.5).toFixed(1)} ${seg[0].y.toFixed(1)} L ${(seg[0].x + 1.5).toFixed(1)} ${bottomY} Z`;
+    } else {
+      pathD = seg.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+      areaD = `${pathD} L ${seg[seg.length - 1].x.toFixed(1)} ${bottomY} L ${seg[0].x.toFixed(1)} ${bottomY} Z`;
+    }
+    pathsSvg += `
+      <path d="${areaD}" fill="url(#mapFlowAreaGrad)"/>
+      <path d="${pathD}" fill="none" stroke="#0284c7" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    `;
+  });
+
+  // Ticks e Grid do Eixo Y
+  let yGridSvg = '';
+  ticks.forEach(tickVal => {
+    const tickY = bottomY - (tickVal / niceMax) * chartH;
+    const isZero = tickVal === 0;
+    const strokeColor = isZero ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.06)';
+    const strokeDash = isZero ? 'none' : '3,3';
+
+    yGridSvg += `
+      <line x1="${padLeft}" y1="${tickY.toFixed(1)}" x2="${(width - padRight).toFixed(1)}" y2="${tickY.toFixed(1)}" stroke="${strokeColor}" stroke-dasharray="${strokeDash}"/>
+      <text x="${(padLeft - 10).toFixed(1)}" y="${(tickY + 3.5).toFixed(1)}" fill="#64748b" font-size="10" text-anchor="end" font-family="JetBrains Mono">${tickVal.toLocaleString('pt-BR')} L/min</text>
+    `;
+  });
+
+  // 5 marcas temporais de referência no Eixo X (24h)
+  const timeTickIndices = [
+    0,
+    Math.floor(total * 0.25),
+    Math.floor(total * 0.5),
+    Math.floor(total * 0.75),
+    total - 1
+  ];
+
+  let xGridAndLabels = '';
+  timeTickIndices.forEach((tIdx, i) => {
+    if (tIdx >= 0 && tIdx < points.length) {
+      const pt = points[tIdx];
+      const anchor = i === 0 ? 'start' : (i === timeTickIndices.length - 1 ? 'end' : 'middle');
+      const isLast = i === timeTickIndices.length - 1;
+      const labelContent = isLast
+        ? `<tspan font-weight="700" fill="#0284c7">AGORA</tspan> <tspan font-size="8" fill="#64748b">(${pt.timeLabel})</tspan>`
+        : (pt.timeLabel || '--');
+
+      xGridAndLabels += `
+        <line x1="${pt.x.toFixed(1)}" y1="${topY}" x2="${pt.x.toFixed(1)}" y2="${bottomY}" stroke="rgba(0,0,0,0.04)" stroke-dasharray="2,4"/>
+        <text x="${pt.x.toFixed(1)}" y="${(bottomY + 18).toFixed(1)}" fill="#64748b" font-size="9" text-anchor="${anchor}" font-family="JetBrains Mono">${labelContent}</text>
+      `;
+    }
+  });
+
+  let svgContent = `
+    <defs>
+      <linearGradient id="mapFlowAreaGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.30"/>
+        <stop offset="85%" stop-color="#38bdf8" stop-opacity="0.04"/>
+        <stop offset="100%" stop-color="#0284c7" stop-opacity="0.0"/>
+      </linearGradient>
+    </defs>
+    ${yGridSvg}
+    ${xGridAndLabels}
+    ${pathsSvg}
+    <g id="map-flow-interactive-group" style="display: none; pointer-events: none;">
+      <line id="map-flow-guideline" x1="0" y1="${topY}" x2="0" y2="${bottomY}" stroke="#0284c7" stroke-width="1.2" stroke-dasharray="3,3" opacity="0.8"/>
+      <circle id="map-flow-point-ring" cx="0" cy="0" r="9" fill="none" stroke="#0284c7" stroke-width="1.5" opacity="0.4"/>
+      <circle id="map-flow-point-highlight" cx="0" cy="0" r="4.5" fill="#0284c7" stroke="#ffffff" stroke-width="2"/>
+    </g>
+  `;
+
+  mapChartFlowSvg.innerHTML = svgContent;
+}
+
+// 11. Setup Event Listeners
 function setupEventListeners() {
   if (btnRefresh) {
     btnRefresh.addEventListener('click', () => {
       fetchTelemetryData();
       fetchSessionsData();
+      fetchFlowChart24h();
     });
   }
 
@@ -685,9 +1036,23 @@ function setupEventListeners() {
       applyFilters(isOnline);
     });
   });
+
+  // Listeners de Interatividade do Gráfico 24h
+  if (mapChartFlowWrapper) {
+    mapChartFlowWrapper.addEventListener('mousemove', handleMapFlowChartInteraction);
+    mapChartFlowWrapper.addEventListener('mouseleave', hideMapFlowChartInteraction);
+    mapChartFlowWrapper.addEventListener('touchstart', handleMapFlowChartInteraction, { passive: true });
+    mapChartFlowWrapper.addEventListener('touchmove', handleMapFlowChartInteraction, { passive: true });
+  }
+
+  document.addEventListener('touchstart', (e) => {
+    if (mapChartFlowWrapper && !mapChartFlowWrapper.contains(e.target)) {
+      hideMapFlowChartInteraction();
+    }
+  }, { passive: true });
 }
 
-// 11. Auth Guard e Inicialização
+// 12. Auth Guard e Inicialização
 async function initAuthAndApp() {
   try {
     // A. Carregar configuração pública do Supabase
@@ -745,12 +1110,14 @@ async function initAuthAndApp() {
     if (!authFailureHandling) {
       await Promise.allSettled([
         fetchTelemetryData(),
-        fetchSessionsData()
+        fetchSessionsData(),
+        fetchFlowChart24h()
       ]);
 
       if (!authFailureHandling) {
         registerInterval(fetchTelemetryData, 5000);
         registerInterval(fetchSessionsData, 15000);
+        registerInterval(fetchFlowChart24h, 60000); // Polling suave de 60s para o gráfico 24h
       }
     }
 
