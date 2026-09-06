@@ -789,6 +789,15 @@ function calculateNiceTicks(maxValue, targetTicks = 5) {
   return ticks;
 }
 
+const MAP_FLOW_CHART_GEOMETRY = {
+  width: 700,
+  height: 240,
+  padLeft: 75,
+  padRight: 25,
+  padTop: 20,
+  padBottom: 35
+};
+
 let cachedMapFlowChartPoints = [];
 
 function handleMapFlowChartInteraction(e) {
@@ -800,14 +809,34 @@ function handleMapFlowChartInteraction(e) {
   const highlightRing = document.getElementById('map-flow-point-ring');
 
   const rect = mapChartFlowSvg.getBoundingClientRect();
-  if (rect.width === 0) return;
+  if (rect.width === 0 || rect.height === 0) return;
 
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
-  // Normalizar coordenada X para o viewBox 0..700
-  const svgX = ((clientX - rect.left) / rect.width) * 700;
+  // 1. Converter coordenadas do cursor para o espaço do viewBox SVG (0..700, 0..240)
+  const svgX = ((clientX - rect.left) / rect.width) * MAP_FLOW_CHART_GEOMETRY.width;
+  const svgY = ((clientY - rect.top) / rect.height) * MAP_FLOW_CHART_GEOMETRY.height;
 
-  // Encontrar o ponto/bucket mais próximo entre os 288
+  // 2. Limites exatos do plot útil (área de desenho da curva)
+  const plotLeft = MAP_FLOW_CHART_GEOMETRY.padLeft;
+  const plotRight = MAP_FLOW_CHART_GEOMETRY.width - MAP_FLOW_CHART_GEOMETRY.padRight;
+  const plotTop = MAP_FLOW_CHART_GEOMETRY.padTop;
+  const plotBottom = MAP_FLOW_CHART_GEOMETRY.height - MAP_FLOW_CHART_GEOMETRY.padBottom;
+  const TOLERANCE = 4;
+
+  // 3. Hit-test estrito: se o cursor estiver fora da área do plot, esconder imediatamente
+  if (
+    svgX < plotLeft - TOLERANCE ||
+    svgX > plotRight + TOLERANCE ||
+    svgY < plotTop - TOLERANCE ||
+    svgY > plotBottom + TOLERANCE
+  ) {
+    hideMapFlowChartInteraction();
+    return;
+  }
+
+  // 4. Encontrar o ponto/bucket mais próximo dentro dos 288 buckets
   let closest = cachedMapFlowChartPoints[0];
   let minDiff = Math.abs(svgX - closest.x);
   for (let i = 1; i < cachedMapFlowChartPoints.length; i++) {
@@ -818,12 +847,14 @@ function handleMapFlowChartInteraction(e) {
     }
   }
 
-  if (!closest) return;
+  if (!closest) {
+    hideMapFlowChartInteraction();
+    return;
+  }
 
-  const bottomY = 205;
-  const targetY = closest.y !== null ? closest.y : bottomY;
+  const targetY = closest.y !== null ? closest.y : plotBottom;
 
-  // Atualizar marcador e linha vertical no SVG
+  // 5. Atualizar marcador vertical ancorado no dado real do bucket
   if (interactiveGroup && guideline && highlightPoint && highlightRing) {
     guideline.setAttribute('x1', closest.x.toFixed(1));
     guideline.setAttribute('x2', closest.x.toFixed(1));
@@ -843,7 +874,7 @@ function handleMapFlowChartInteraction(e) {
     interactiveGroup.style.display = '';
   }
 
-  // Atualizar Tooltip HTML
+  // 6. Atualizar Tooltip HTML e posicionamento com acompanhamento do cursor + detecção de colisão
   if (flowTooltip && mapChartFlowWrapper) {
     let statusText = 'SEM PASSAGEM';
     let statusClass = 'status-no-flow';
@@ -892,11 +923,26 @@ function handleMapFlowChartInteraction(e) {
     `;
 
     const wrapperRect = mapChartFlowWrapper.getBoundingClientRect();
-    const xInWrapper = clientX - wrapperRect.left;
-    const yInWrapper = (targetY / 240) * wrapperRect.height;
+    const cursorX = clientX - wrapperRect.left;
+    const cursorY = clientY - wrapperRect.top;
 
-    flowTooltip.style.left = `${Math.max(130, Math.min(wrapperRect.width - 130, xInWrapper))}px`;
-    flowTooltip.style.top = `${Math.max(40, yInWrapper)}px`;
+    // Posicionamento horizontal acompanhando o cursor e limitado pelas bordas do container
+    const clampedX = Math.max(120, Math.min(wrapperRect.width - 120, cursorX));
+    flowTooltip.style.left = `${clampedX}px`;
+
+    // Posicionamento vertical acompanhando o cursor com inversão inteligente (Flip Top/Bottom)
+    if (cursorY < 145) {
+      // Abre abaixo do cursor quando próximo ao topo para evitar corte visual
+      flowTooltip.style.top = `${cursorY}px`;
+      flowTooltip.style.transform = 'translate(-50%, 0)';
+      flowTooltip.style.marginTop = '14px';
+    } else {
+      // Abre acima do cursor
+      flowTooltip.style.top = `${cursorY}px`;
+      flowTooltip.style.transform = 'translate(-50%, -100%)';
+      flowTooltip.style.marginTop = '-12px';
+    }
+
     flowTooltip.classList.add('visible');
   }
 }
@@ -904,7 +950,11 @@ function handleMapFlowChartInteraction(e) {
 function hideMapFlowChartInteraction() {
   const flowTooltip = document.getElementById('map-flow-chart-tooltip');
   const interactiveGroup = document.getElementById('map-flow-interactive-group');
-  if (flowTooltip) flowTooltip.classList.remove('visible');
+  if (flowTooltip) {
+    flowTooltip.classList.remove('visible');
+    flowTooltip.style.transform = '';
+    flowTooltip.style.marginTop = '';
+  }
   if (interactiveGroup) interactiveGroup.style.display = 'none';
 }
 
@@ -936,12 +986,12 @@ function renderMapFlowChart(chartBuckets) {
   mapChartFlowEmpty.classList.add('hidden');
   mapChartFlowSvg.classList.remove('hidden');
 
-  const width = 700;
-  const height = 240;
-  const padLeft = 75;
-  const padRight = 25;
-  const padTop = 20;
-  const padBottom = 35;
+  const width = MAP_FLOW_CHART_GEOMETRY.width;
+  const height = MAP_FLOW_CHART_GEOMETRY.height;
+  const padLeft = MAP_FLOW_CHART_GEOMETRY.padLeft;
+  const padRight = MAP_FLOW_CHART_GEOMETRY.padRight;
+  const padTop = MAP_FLOW_CHART_GEOMETRY.padTop;
+  const padBottom = MAP_FLOW_CHART_GEOMETRY.padBottom;
   const chartW = width - padLeft - padRight;
   const chartH = height - padTop - padBottom;
   const bottomY = height - padBottom; // 205
