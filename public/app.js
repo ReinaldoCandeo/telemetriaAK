@@ -174,6 +174,7 @@ async function startApp() {
     await Promise.allSettled([
       fetchLatestTelemetry(),
       fetchTelemetryHistory(),
+      fetchFlowSummary(),
       fetchFlowSessions(),
       fetchFlowChart24h(),
       fetchDailySummary()
@@ -182,6 +183,7 @@ async function startApp() {
     if (!authFailureHandling) {
       registerInterval(fetchLatestTelemetry, 1000);
       registerInterval(fetchTelemetryHistory, 2000);
+      registerInterval(fetchFlowSummary, 2000);
       registerInterval(fetchFlowSessions, 15000);
       registerInterval(fetchFlowChart24h, 60000);
       registerInterval(fetchDailySummary, 60000);
@@ -226,6 +228,7 @@ const valRssiQuality = document.getElementById('val-rssi-quality');
 const valReceivedTime = document.getElementById('val-received-time');
 const valReceivedDate = document.getElementById('val-received-date');
 const valDeviceId = document.getElementById('val-device-id');
+const valCardLastPulseTime = document.getElementById('val-card-last-pulse-time');
 
 // Quick status card for calibration
 const valCalibStatusText = document.getElementById('val-calib-status-text');
@@ -698,16 +701,20 @@ async function fetchFlowSummary() {
       }
     }
 
-    // Last Pulse Card
+    // Last Pulse Card & Technical Card
     if (last_pulse_at) {
       const d = new Date(last_pulse_at);
-      if (valLastPulseTime) valLastPulseTime.textContent = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-      if (valLastPulseDate) valLastPulseDate.textContent = d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      const timeStr = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      const dateStr = d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      if (valLastPulseTime) valLastPulseTime.textContent = timeStr;
+      if (valLastPulseDate) valLastPulseDate.textContent = dateStr;
       if (valLastPulseRelative) valLastPulseRelative.textContent = formatRelativeTime(last_pulse_at);
+      if (valCardLastPulseTime) valCardLastPulseTime.textContent = timeStr;
     } else {
       if (valLastPulseTime) valLastPulseTime.textContent = '--:--:--';
       if (valLastPulseDate) valLastPulseDate.textContent = '--/--/----';
       if (valLastPulseRelative) valLastPulseRelative.textContent = 'Nenhum pulso registrado';
+      if (valCardLastPulseTime) valCardLastPulseTime.textContent = '--:--:--';
     }
   } catch (err) {
     console.error('Erro ao buscar resumo de vazão:', err);
