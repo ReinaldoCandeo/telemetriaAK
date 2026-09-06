@@ -24,6 +24,8 @@ let marker = null;
 let currentFilter = 'all';
 let searchQuery = '';
 
+let refreshSessionPromise = null;
+
 function registerInterval(fn, ms) {
   const id = setInterval(fn, ms);
   activeIntervals.push(id);
@@ -35,6 +37,29 @@ function clearAllIntervals() {
   activeIntervals = [];
 }
 
+async function tryRefreshSession() {
+  if (refreshSessionPromise) return refreshSessionPromise;
+
+  refreshSessionPromise = (async () => {
+    try {
+      if (!supabaseClient) return null;
+      const { data, error } = await supabaseClient.auth.refreshSession();
+      if (error || !data?.session?.access_token) {
+        const { data: sData } = await supabaseClient.auth.getSession();
+        return sData?.session?.access_token || null;
+      }
+      return data.session.access_token;
+    } catch (err) {
+      console.warn('Falha ao renovar sessão no mapa:', err);
+      return null;
+    } finally {
+      refreshSessionPromise = null;
+    }
+  })();
+
+  return refreshSessionPromise;
+}
+
 async function handleUnauthorizedOnce() {
   if (authFailureHandling) return;
   authFailureHandling = true;
@@ -44,8 +69,7 @@ async function handleUnauthorizedOnce() {
     try { await supabaseClient.auth.signOut(); } catch (e) {}
   }
 
-  alert('Sessão expirada. Entre novamente.');
-  window.location.replace('/login.html');
+  window.location.replace('/login.html?expired=1');
 }
 
 let telemetryCache = null;
@@ -100,27 +124,43 @@ const barLastEsp = document.getElementById('bar-last-esp');
 const barLastRefresh = document.getElementById('bar-last-refresh');
 
 // 3. Helper de Fetch Autenticado para o Mapa
-async function apiFetch(url, options = {}) {
+async function apiFetch(url, options = {}, isRetry = false) {
   if (authFailureHandling) return new Response(null, { status: 401 });
   if (!supabaseClient) {
     handleUnauthorizedOnce();
     return new Response(null, { status: 401 });
   }
 
-  const { data: { session } } = await supabaseClient.auth.getSession();
-  if (!session?.access_token) {
-    handleUnauthorizedOnce();
-    return new Response(null, { status: 401 });
+  let token = null;
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    token = session?.access_token || null;
+  } catch (e) {
+    token = null;
+  }
+
+  if (!token) {
+    token = await tryRefreshSession();
+    if (!token) {
+      handleUnauthorizedOnce();
+      return new Response(null, { status: 401 });
+    }
   }
 
   const headers = {
     ...(options.headers || {}),
-    'Authorization': `Bearer ${session.access_token}`
+    'Authorization': `Bearer ${token}`
   };
 
   const response = await fetch(url, { ...options, headers });
 
   if (response.status === 401) {
+    if (!isRetry) {
+      const newToken = await tryRefreshSession();
+      if (newToken) {
+        return apiFetch(url, options, true);
+      }
+    }
     handleUnauthorizedOnce();
     return response;
   }

@@ -13,6 +13,31 @@ function clearAllIntervals() {
   activeIntervals = [];
 }
 
+let refreshSessionPromise = null;
+
+async function tryRefreshSession() {
+  if (refreshSessionPromise) return refreshSessionPromise;
+
+  refreshSessionPromise = (async () => {
+    try {
+      if (!supabaseClient) return null;
+      const { data, error } = await supabaseClient.auth.refreshSession();
+      if (error || !data?.session?.access_token) {
+        const { data: sData } = await supabaseClient.auth.getSession();
+        return sData?.session?.access_token || null;
+      }
+      return data.session.access_token;
+    } catch (err) {
+      console.warn('Falha ao renovar sessão:', err);
+      return null;
+    } finally {
+      refreshSessionPromise = null;
+    }
+  })();
+
+  return refreshSessionPromise;
+}
+
 async function handleUnauthorizedOnce() {
   if (authFailureHandling) return;
   authFailureHandling = true;
@@ -22,8 +47,7 @@ async function handleUnauthorizedOnce() {
     try { await supabaseClient.auth.signOut(); } catch (e) { }
   }
 
-  alert('Sessão expirada. Entre novamente.');
-  window.location.replace('/login.html');
+  window.location.replace('/login.html?expired=1');
 }
 
 // Obter token Bearer para chamadas administrativas
@@ -38,15 +62,18 @@ async function getAdminAccessToken() {
 }
 
 // Wrapper para requisições com Bearer token e tratamento de 401/403
-async function adminFetch(url, options = {}) {
+async function adminFetch(url, options = {}, isRetry = false) {
   if (authFailureHandling) {
     return new Response(null, { status: 401 });
   }
 
-  const token = await getAdminAccessToken();
+  let token = await getAdminAccessToken();
   if (!token) {
-    handleUnauthorizedOnce();
-    return new Response(null, { status: 401 });
+    token = await tryRefreshSession();
+    if (!token) {
+      handleUnauthorizedOnce();
+      return new Response(null, { status: 401 });
+    }
   }
 
   const headers = {
@@ -61,6 +88,12 @@ async function adminFetch(url, options = {}) {
   });
 
   if (response.status === 401) {
+    if (!isRetry) {
+      const newToken = await tryRefreshSession();
+      if (newToken) {
+        return adminFetch(url, options, true);
+      }
+    }
     handleUnauthorizedOnce();
     return response;
   }

@@ -57,6 +57,19 @@ function hideError() {
   errorBanner.classList.add('hidden');
 }
 
+// Verificar parâmetro ?expired=1 na URL para aviso discreto inline
+try {
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('expired') === '1') {
+    showError('Sua sessão expirou. Entre novamente.');
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }
+} catch (e) {
+  console.warn('Erro ao processar parâmetros da URL:', e);
+}
+
 function setLoading(isLoading) {
   if (!btnLogin || !btnText || !btnSpinner) return;
   if (isLoading) {
