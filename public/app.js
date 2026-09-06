@@ -733,6 +733,180 @@ async function fetchFlowChart24h() {
   }
 }
 
+// Helper para cálculo de escala com ticks arredondados e elegantes
+function calculateNiceTicks(maxValue, targetTicks = 5) {
+  if (typeof maxValue !== 'number' || isNaN(maxValue) || maxValue <= 0) {
+    return [0, 10, 20, 30, 40, 50];
+  }
+
+  const rawStep = maxValue / (targetTicks - 1);
+  const exponent = Math.floor(Math.log10(rawStep));
+  const magnitude = Math.pow(10, exponent);
+  const fraction = rawStep / magnitude;
+
+  let niceFraction;
+  if (fraction <= 1.25) {
+    niceFraction = 1;
+  } else if (fraction <= 2.25) {
+    niceFraction = 2;
+  } else if (fraction <= 3.5) {
+    niceFraction = 2.5;
+  } else if (fraction <= 7.5) {
+    niceFraction = 5;
+  } else {
+    niceFraction = 10;
+  }
+
+  const step = niceFraction * magnitude;
+  const niceMax = Math.ceil(maxValue / step) * step;
+
+  const ticks = [];
+  const count = Math.round(niceMax / step);
+  for (let i = 0; i <= count; i++) {
+    const val = i * step;
+    ticks.push(Math.round(val * 100) / 100);
+  }
+
+  if (ticks.length < 2) {
+    return [0, Math.max(10, niceMax)];
+  }
+  return ticks;
+}
+
+let cachedFlowChartPoints = [];
+
+// Interatividade customizada do gráfico 24h (Hover e Touch)
+function handleFlowChartInteraction(e) {
+  if (!chartFlowSvg || !cachedFlowChartPoints || cachedFlowChartPoints.length === 0) return;
+  const flowTooltip = document.getElementById('flow-chart-tooltip');
+  const interactiveGroup = document.getElementById('flow-interactive-group');
+  const guideline = document.getElementById('flow-guideline');
+  const highlightPoint = document.getElementById('flow-point-highlight');
+  const highlightRing = document.getElementById('flow-point-ring');
+
+  const rect = chartFlowSvg.getBoundingClientRect();
+  if (rect.width === 0) return;
+
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+
+  // Normalizar coordenada X para o viewBox 0..700
+  const svgX = ((clientX - rect.left) / rect.width) * 700;
+
+  // Encontrar o ponto/bucket mais próximo entre os 288
+  let closest = cachedFlowChartPoints[0];
+  let minDiff = Math.abs(svgX - closest.x);
+  for (let i = 1; i < cachedFlowChartPoints.length; i++) {
+    const diff = Math.abs(svgX - cachedFlowChartPoints[i].x);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = cachedFlowChartPoints[i];
+    }
+  }
+
+  if (!closest) return;
+
+  const bottomY = 205;
+  const targetY = closest.y !== null ? closest.y : bottomY;
+
+  // Atualizar marcador e linha vertical no SVG
+  if (interactiveGroup && guideline && highlightPoint && highlightRing) {
+    guideline.setAttribute('x1', closest.x.toFixed(1));
+    guideline.setAttribute('x2', closest.x.toFixed(1));
+    highlightPoint.setAttribute('cx', closest.x.toFixed(1));
+    highlightPoint.setAttribute('cy', targetY.toFixed(1));
+    highlightRing.setAttribute('cx', closest.x.toFixed(1));
+    highlightRing.setAttribute('cy', targetY.toFixed(1));
+
+    let color = '#38bdf8';
+    if (closest.status === 'insufficient_data') color = '#f59e0b';
+    else if (closest.status === 'no_flow') color = '#94a3b8';
+
+    highlightPoint.setAttribute('fill', color);
+    highlightRing.setAttribute('stroke', color);
+    guideline.setAttribute('stroke', color);
+
+    interactiveGroup.style.display = '';
+  }
+
+  // Atualizar Tooltip HTML
+  if (flowTooltip && chartFlowWrapper) {
+    let statusText = 'SEM PASSAGEM';
+    let statusClass = 'status-no-flow';
+    if (closest.status === 'flow') {
+      statusText = 'PASSAGEM';
+      statusClass = 'status-flow';
+    } else if (closest.status === 'insufficient_data') {
+      statusText = 'DADOS INSUFICIENTES';
+      statusClass = 'status-insufficient';
+    }
+
+    let flowAvgStr = '--';
+    if (closest.status === 'flow' && typeof closest.flow_lpm === 'number') {
+      flowAvgStr = `${closest.flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`;
+    } else if (closest.status === 'no_flow') {
+      flowAvgStr = '0,0 L/min';
+    }
+
+    let flowMaxStr = '--';
+    if (typeof closest.max_flow_lpm === 'number' && closest.max_flow_lpm > 0) {
+      flowMaxStr = `${closest.max_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`;
+    } else if (closest.status === 'flow' && typeof closest.flow_lpm === 'number') {
+      flowMaxStr = `${closest.flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`;
+    } else if (closest.status === 'no_flow') {
+      flowMaxStr = '0,0 L/min';
+    }
+
+    const volStr = typeof closest.volume_liters === 'number'
+      ? `${closest.volume_liters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} L`
+      : '--';
+
+    const pulseStr = typeof closest.pulse_count === 'number'
+      ? `${closest.pulse_count.toLocaleString('pt-BR')}`
+      : '--';
+
+    flowTooltip.innerHTML = `
+      <div class="tt-header">
+        <span class="tt-date">${closest.timeLabel || '--'}</span>
+        <span class="tt-status ${statusClass}">${statusText}</span>
+      </div>
+      <div class="tt-row"><span class="tt-label">Vazão Média:</span><span class="tt-val" style="color:#38bdf8;">${flowAvgStr}</span></div>
+      <div class="tt-row"><span class="tt-label">PICO NO INTERVALO:</span><span class="tt-val">${flowMaxStr}</span></div>
+      <div class="tt-row"><span class="tt-label">Volume:</span><span class="tt-val">${volStr}</span></div>
+      <div class="tt-row"><span class="tt-label">Pulsos:</span><span class="tt-val">${pulseStr}</span></div>
+      <div class="tt-hint">Média do intervalo de 5 min</div>
+    `;
+
+    const wrapperRect = chartFlowWrapper.getBoundingClientRect();
+    const xInWrapper = clientX - wrapperRect.left;
+    const yInWrapper = (targetY / 240) * wrapperRect.height;
+
+    flowTooltip.style.left = `${Math.max(130, Math.min(wrapperRect.width - 130, xInWrapper))}px`;
+    flowTooltip.style.top = `${Math.max(40, yInWrapper)}px`;
+    flowTooltip.classList.add('visible');
+  }
+}
+
+function hideFlowChartInteraction() {
+  const flowTooltip = document.getElementById('flow-chart-tooltip');
+  const interactiveGroup = document.getElementById('flow-interactive-group');
+  if (flowTooltip) flowTooltip.classList.remove('visible');
+  if (interactiveGroup) interactiveGroup.style.display = 'none';
+}
+
+// Inicializar listeners de interação no gráfico 24h
+if (chartFlowWrapper) {
+  chartFlowWrapper.addEventListener('mousemove', handleFlowChartInteraction);
+  chartFlowWrapper.addEventListener('mouseleave', hideFlowChartInteraction);
+  chartFlowWrapper.addEventListener('touchstart', handleFlowChartInteraction, { passive: true });
+  chartFlowWrapper.addEventListener('touchmove', handleFlowChartInteraction, { passive: true });
+}
+
+document.addEventListener('touchstart', (e) => {
+  if (chartFlowWrapper && !chartFlowWrapper.contains(e.target)) {
+    hideFlowChartInteraction();
+  }
+}, { passive: true });
+
 // Render SVG Chart 3: VAZÃO AO LONGO DO TEMPO (24 HORAS)
 function renderFlowChart(chartBuckets) {
   if (!chartFlowSvg || !chartFlowEmpty) return;
@@ -740,46 +914,57 @@ function renderFlowChart(chartBuckets) {
   if (!Array.isArray(chartBuckets) || chartBuckets.length === 0) {
     chartFlowEmpty.classList.remove('hidden');
     chartFlowSvg.classList.add('hidden');
+    cachedFlowChartPoints = [];
     return;
   }
 
   chartFlowEmpty.classList.add('hidden');
   chartFlowSvg.classList.remove('hidden');
 
-  const width = 500;
-  const height = 180;
-  const padX = 45;
-  const padY = 30;
-  const bottomY = height - padY;
+  const width = 700;
+  const height = 240;
+  const padLeft = 75;
+  const padRight = 25;
+  const padTop = 20;
+  const padBottom = 35;
+  const chartW = width - padLeft - padRight;
+  const chartH = height - padTop - padBottom;
+  const bottomY = height - padBottom; // 205
+  const topY = padTop; // 20
 
-  // Obter maior vazão válida para definir escala do eixo Y
+  // Obter maior vazão válida baseada SOMENTE em flow_lpm para definir escala do eixo Y
   const flowVals = chartBuckets
     .filter(b => typeof b.flow_lpm === 'number' && b.flow_lpm > 0)
     .map(b => b.flow_lpm);
 
-  const maxVal = flowVals.length > 0 ? Math.max(Math.ceil(Math.max(...flowVals) * 1.15), 10) : 300;
-  const minVal = 0;
-  const valRange = maxVal - minVal || 1;
+  const rawMax = flowVals.length > 0 ? Math.max(...flowVals) : 50;
+  const ticks = calculateNiceTicks(rawMax, 5);
+  const niceMax = ticks[ticks.length - 1] || 50;
 
   const total = chartBuckets.length;
 
   const points = chartBuckets.map((b, idx) => {
     const x = total > 1
-      ? padX + (idx / (total - 1)) * (width - 2 * padX)
-      : width / 2;
+      ? padLeft + (idx / (total - 1)) * chartW
+      : padLeft + chartW / 2;
 
     let y = null;
     if (typeof b.flow_lpm === 'number') {
-      y = bottomY - ((b.flow_lpm - minVal) / valRange) * (height - 2 * padY);
+      y = bottomY - (Math.max(0, b.flow_lpm) / niceMax) * chartH;
     }
 
-    const recDate = b.timestamp ? new Date(b.timestamp) : null;
+    const recDate = b.timestamp
+      ? new Date(b.timestamp)
+      : (b.bucket_start ? new Date(b.bucket_start) : null);
+
     const timeLabel = recDate
       ? recDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
       : '';
 
-    return { ...b, x, y, timeLabel };
+    return { ...b, x, y, timeLabel, idx };
   });
+
+  cachedFlowChartPoints = points;
 
   // Dividir em segmentos contínuos com valores numéricos (ignora gaps de insufficient_data)
   const segments = [];
@@ -804,21 +989,31 @@ function renderFlowChart(chartBuckets) {
     let pathD = '';
     let areaD = '';
     if (seg.length === 1) {
-      pathD = `M ${(seg[0].x - 2).toFixed(1)} ${seg[0].y.toFixed(1)} L ${(seg[0].x + 2).toFixed(1)} ${seg[0].y.toFixed(1)}`;
-      areaD = `M ${(seg[0].x - 2).toFixed(1)} ${bottomY} L ${(seg[0].x - 2).toFixed(1)} ${seg[0].y.toFixed(1)} L ${(seg[0].x + 2).toFixed(1)} ${seg[0].y.toFixed(1)} L ${(seg[0].x + 2).toFixed(1)} ${bottomY} Z`;
+      pathD = `M ${(seg[0].x - 1.5).toFixed(1)} ${seg[0].y.toFixed(1)} L ${(seg[0].x + 1.5).toFixed(1)} ${seg[0].y.toFixed(1)}`;
+      areaD = `M ${(seg[0].x - 1.5).toFixed(1)} ${bottomY} L ${(seg[0].x - 1.5).toFixed(1)} ${seg[0].y.toFixed(1)} L ${(seg[0].x + 1.5).toFixed(1)} ${seg[0].y.toFixed(1)} L ${(seg[0].x + 1.5).toFixed(1)} ${bottomY} Z`;
     } else {
       pathD = seg.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
       areaD = `${pathD} L ${seg[seg.length - 1].x.toFixed(1)} ${bottomY} L ${seg[0].x.toFixed(1)} ${bottomY} Z`;
     }
     pathsSvg += `
       <path d="${areaD}" fill="url(#flowAreaGrad)"/>
-      <path d="${pathD}" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${pathD}" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
     `;
   });
 
-  const gridY1 = bottomY;
-  const gridY2 = bottomY - (height - 2 * padY) / 2;
-  const gridY3 = padY;
+  // Ticks e Grid do Eixo Y
+  let yGridSvg = '';
+  ticks.forEach(tickVal => {
+    const tickY = bottomY - (tickVal / niceMax) * chartH;
+    const isZero = tickVal === 0;
+    const strokeColor = isZero ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)';
+    const strokeDash = isZero ? 'none' : '3,3';
+
+    yGridSvg += `
+      <line x1="${padLeft}" y1="${tickY.toFixed(1)}" x2="${(width - padRight).toFixed(1)}" y2="${tickY.toFixed(1)}" stroke="${strokeColor}" stroke-dasharray="${strokeDash}"/>
+      <text x="${(padLeft - 10).toFixed(1)}" y="${(tickY + 3.5).toFixed(1)}" fill="#64748b" font-size="10" text-anchor="end" font-family="JetBrains Mono">${tickVal.toLocaleString('pt-BR')} L/min</text>
+    `;
+  });
 
   // 5 marcas temporais de referência no Eixo X (24h)
   const timeTickIndices = [
@@ -834,11 +1029,14 @@ function renderFlowChart(chartBuckets) {
     if (tIdx >= 0 && tIdx < points.length) {
       const pt = points[tIdx];
       const anchor = i === 0 ? 'start' : (i === timeTickIndices.length - 1 ? 'end' : 'middle');
-      const offsetTextX = pt.x;
+      const isLast = i === timeTickIndices.length - 1;
+      const labelContent = isLast
+        ? `<tspan font-weight="700" fill="#38bdf8">AGORA</tspan> <tspan font-size="8" fill="#64748b">(${pt.timeLabel})</tspan>`
+        : (pt.timeLabel || '--');
 
       xGridAndLabels += `
-        <line x1="${pt.x.toFixed(1)}" y1="${gridY3}" x2="${pt.x.toFixed(1)}" y2="${bottomY}" stroke="rgba(255,255,255,0.04)" stroke-dasharray="2,4"/>
-        <text x="${offsetTextX.toFixed(1)}" y="${height - 8}" fill="#64748b" font-size="9" text-anchor="${anchor}" font-family="JetBrains Mono">${pt.timeLabel || '--'}</text>
+        <line x1="${pt.x.toFixed(1)}" y1="${topY}" x2="${pt.x.toFixed(1)}" y2="${bottomY}" stroke="rgba(255,255,255,0.04)" stroke-dasharray="2,4"/>
+        <text x="${pt.x.toFixed(1)}" y="${(bottomY + 18).toFixed(1)}" fill="#64748b" font-size="9" text-anchor="${anchor}" font-family="JetBrains Mono">${labelContent}</text>
       `;
     }
   });
@@ -846,43 +1044,20 @@ function renderFlowChart(chartBuckets) {
   let svgContent = `
     <defs>
       <linearGradient id="flowAreaGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.45"/>
-        <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.0"/>
+        <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.30"/>
+        <stop offset="85%" stop-color="#38bdf8" stop-opacity="0.04"/>
+        <stop offset="100%" stop-color="#0284c7" stop-opacity="0.0"/>
       </linearGradient>
     </defs>
-    <line x1="${padX}" y1="${gridY1}" x2="${width - padX}" y2="${gridY1}" stroke="rgba(255,255,255,0.08)" stroke-dasharray="4,4"/>
-    <line x1="${padX}" y1="${gridY2}" x2="${width - padX}" y2="${gridY2}" stroke="rgba(255,255,255,0.08)" stroke-dasharray="4,4"/>
-    <line x1="${padX}" y1="${gridY3}" x2="${width - padX}" y2="${gridY3}" stroke="rgba(255,255,255,0.08)" stroke-dasharray="4,4"/>
-    
-    <text x="${padX - 8}" y="${gridY3 + 4}" fill="#64748b" font-size="10" text-anchor="end" font-family="JetBrains Mono">${maxVal.toFixed(0)} L/m</text>
-    <text x="${padX - 8}" y="${gridY1 + 4}" fill="#64748b" font-size="10" text-anchor="end" font-family="JetBrains Mono">0 L/m</text>
-
+    ${yGridSvg}
     ${xGridAndLabels}
     ${pathsSvg}
+    <g id="flow-interactive-group" style="display: none; pointer-events: none;">
+      <line id="flow-guideline" x1="0" y1="${topY}" x2="0" y2="${bottomY}" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="3,3" opacity="0.8"/>
+      <circle id="flow-point-ring" cx="0" cy="0" r="9" fill="none" stroke="#38bdf8" stroke-width="1.5" opacity="0.4"/>
+      <circle id="flow-point-highlight" cx="0" cy="0" r="4.5" fill="#38bdf8" stroke="#0f172a" stroke-width="2"/>
+    </g>
   `;
-
-  // Renderizar marcadores e títulos de tooltip
-  points.forEach((pt) => {
-    if (pt.status === 'flow') {
-      svgContent += `
-        <circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="2" fill="#38bdf8" stroke="#090d16" stroke-width="1">
-          <title>Horário: ${pt.timeLabel}\nVazão Média: ${pt.flow_lpm} L/min\nPico: ${pt.max_flow_lpm || pt.flow_lpm} L/min\nVolume: ${pt.volume_liters} L\nPulsos: ${pt.pulse_count}</title>
-        </circle>
-      `;
-    } else if (pt.status === 'insufficient_data') {
-      svgContent += `
-        <circle cx="${pt.x.toFixed(1)}" cy="${bottomY}" r="2" fill="#f59e0b" opacity="0.7">
-          <title>Horário: ${pt.timeLabel}\nDADOS INSUFICIENTES\nVolume: ${pt.volume_liters} L\nPulsos: ${pt.pulse_count}</title>
-        </circle>
-      `;
-    } else {
-      svgContent += `
-        <circle cx="${pt.x.toFixed(1)}" cy="${bottomY}" r="3" fill="transparent">
-          <title>Horário: ${pt.timeLabel}\nSEM PASSAGEM (0 L/min)\nVolume: 0 L</title>
-        </circle>
-      `;
-    }
-  });
 
   chartFlowSvg.innerHTML = svgContent;
 }

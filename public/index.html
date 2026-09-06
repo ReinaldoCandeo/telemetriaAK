@@ -250,7 +250,7 @@
               <div class="chart-title-icon">📈</div>
               <div>
                 <h3 class="chart-title">TENDÊNCIA VAZÃO (24h)</h3>
-                <p class="chart-subtitle">Histórico de Vazão em L/min Calculado Inter-Pulsos</p>
+                <p class="chart-subtitle">Vazão média em intervalos de 5 min • últimas 24h</p>
               </div>
             </div>
 
@@ -277,9 +277,10 @@
               <span class="empty-sub">A vazão será calculada e desenhada após a calibração e a captura de pelo menos
                 dois pulsos válidos.</span>
             </div>
-            <svg id="chart-flow-svg" class="chart-svg hidden" viewBox="0 0 500 180" preserveAspectRatio="none">
+            <svg id="chart-flow-svg" class="chart-svg hidden" viewBox="0 0 700 240">
               <!-- Desenhado dinamicamente via app.js -->
             </svg>
+            <div id="flow-chart-tooltip" class="flow-chart-tooltip"></div>
           </div>
         </section>
 
