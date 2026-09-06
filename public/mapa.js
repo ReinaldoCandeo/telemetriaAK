@@ -80,6 +80,7 @@ let telemetryCache = null;
 let systemSummaryCache = null;
 let flowSummaryCache = null;
 let sessionsCache = null;
+let dailySummaryCache = null;
 
 // Elementos do DOM - Cabeçalho e Ações
 const commStatusBadge = document.getElementById('comm-status-badge');
@@ -92,6 +93,7 @@ const valMonitoredPoints = document.getElementById('val-monitored-points');
 const valOnlinePoints = document.getElementById('val-online-points');
 const valTotalVolumeM3Main = document.getElementById('val-total-volume-m3-main');
 const valTotalVolumeLitersSub = document.getElementById('val-total-volume-liters-sub');
+const valFlowTitleTop = document.getElementById('val-flow-title-top');
 const valCurrentFlowMain = document.getElementById('val-current-flow-main');
 const valCurrentFlowM3hSub = document.getElementById('val-current-flow-m3h-sub');
 const valSessionStatusTop = document.getElementById('val-session-status-top');
@@ -100,10 +102,12 @@ const valSessionDetailTop = document.getElementById('val-session-detail-top');
 // Elementos do DOM - Card Lateral HIDRO-001
 const cardHidro001 = document.getElementById('card-hidro-001');
 const hidroStatusPill = document.getElementById('hidro-status-pill');
+const hidroFlowLabel = document.getElementById('hidro-flow-label');
 const hidroFlowRecent = document.getElementById('hidro-flow-recent');
 const hidroFlowM3h = document.getElementById('hidro-flow-m3h');
 const hidroVolumeM3 = document.getElementById('hidro-volume-m3');
 const hidroVolumeLiters = document.getElementById('hidro-volume-liters');
+const hidroFlowAvgLabel = document.getElementById('hidro-flow-avg-label');
 const hidroFlowAvg = document.getElementById('hidro-flow-avg');
 const hidroFlowMax = document.getElementById('hidro-flow-max');
 const hidroSessionStatus = document.getElementById('hidro-session-status');
@@ -189,7 +193,17 @@ async function apiFetch(url, options = {}, isRetry = false) {
   return response;
 }
 
-// 4. Utilitário de Formatação de Tempo Relativo
+// 4. Utilitários de Data e Tempo Relativo
+function getTodayLocalDateStr() {
+  const d = new Date();
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(d);
+}
+
 function formatHumanRelativeTime(dateIso) {
   if (!dateIso) return 'Sem registro';
   const diffSec = Math.floor((Date.now() - new Date(dateIso).getTime()) / 1000);
@@ -201,6 +215,243 @@ function formatHumanRelativeTime(dateIso) {
   if (diffHours < 24) return `há ${diffHours} h`;
   const diffDays = Math.floor(diffHours / 24);
   return `há ${diffDays} dia${diffDays !== 1 ? 's' : ''}`;
+}
+
+// 5. Normalização Centralizada de Dados (Snapshot Executivo Único)
+// Executive UI consumes normalized backend metrics.
+// Do not recalculate hydraulic metrics here.
+function buildExecutiveSnapshot() {
+  const now = Date.now();
+  const recAt = telemetryCache?.received_at ? new Date(telemetryCache.received_at).getTime() : null;
+  const isOnline = recAt !== null && (now - recAt <= 20000);
+
+  const sum = sessionsCache?.summary;
+  const hasOpenSession = Boolean(sum && sum.open_session);
+  const latestSess = sum && sum.latest_session;
+
+  let passageState = 'INDISPONÍVEL';
+  let passageBadgeClass = 'status-offline';
+  let passageDetail = 'Sem comunicação';
+
+  if (isOnline) {
+    if (hasOpenSession) {
+      passageState = 'PASSAGEM ATIVA';
+      passageBadgeClass = 'status-online';
+      const durSec = latestSess?.duration_seconds || 0;
+      passageDetail = `Em curso (${Math.round(durSec / 60)} min • ${latestSess?.pulse_count || 0}p)`;
+    } else {
+      passageState = 'SEM PASSAGEM';
+      passageBadgeClass = 'status-offline';
+      if (latestSess && latestSess.last_pulse_at) {
+        const lastD = new Date(latestSess.last_pulse_at);
+        passageDetail = `Última: ${lastD.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}`;
+      } else {
+        passageDetail = 'Sem registros';
+      }
+    }
+  } else {
+    passageState = 'INDISPONÍVEL';
+    passageBadgeClass = 'status-offline';
+    passageDetail = 'Dispositivo offline';
+  }
+
+  let flowLabel = 'VAZÃO ATUAL';
+  let flowLpmStr = '-- <span class="unit">L/min</span>';
+  let flowM3hStr = '-- m³/h';
+  let flowNumericLpm = null;
+
+  const latestLpm = flowSummaryCache?.latest_flow_lpm;
+  const latestM3h = flowSummaryCache?.latest_flow_m3h;
+
+  if (isOnline) {
+    flowLabel = 'VAZÃO ATUAL';
+    if (hasOpenSession && typeof latestLpm === 'number') {
+      flowNumericLpm = latestLpm;
+      flowLpmStr = `${latestLpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} <span class="unit">L/min</span>`;
+      flowM3hStr = `${typeof latestM3h === 'number' ? latestM3h.toLocaleString('pt-BR', { minimumFractionDigits: 3 }) : '--'} m³/h`;
+    } else {
+      flowNumericLpm = 0;
+      flowLpmStr = `0,0 <span class="unit">L/min</span>`;
+      flowM3hStr = `0,000 m³/h`;
+    }
+  } else {
+    flowLabel = 'ÚLTIMA VAZÃO MEDIDA';
+    if (typeof latestLpm === 'number') {
+      flowNumericLpm = latestLpm;
+      flowLpmStr = `${latestLpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} <span class="unit">L/min</span>`;
+      flowM3hStr = `Última medição`;
+    } else {
+      flowLpmStr = `-- <span class="unit">L/min</span>`;
+      flowM3hStr = `Sem medição`;
+    }
+  }
+
+  let lastSignalHuman = 'Sem envio';
+  let lastSignalTime = null;
+  let lastSignalTimeStr = '--:--:--';
+  if (telemetryCache?.received_at) {
+    const d = new Date(telemetryCache.received_at);
+    lastSignalHuman = formatHumanRelativeTime(telemetryCache.received_at);
+    lastSignalTime = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    lastSignalTimeStr = lastSignalTime;
+  }
+
+  const todayStr = getTodayLocalDateStr();
+  const todayItem = Array.isArray(dailySummaryCache?.items)
+    ? dailySummaryCache.items.find(item => item.date === todayStr || item.local_date === todayStr)
+    : null;
+
+  let todayVolM3Str = '-- <span class="unit">m³</span>';
+  let todayVolLitersSub = isOnline ? '00:00 → agora' : (lastSignalTime ? `00:00 → ${lastSignalTime}` : 'cobertura indisponível');
+  let todayStatus = todayItem?.status || 'EM_ANDAMENTO';
+  let hasTodayData = false;
+
+  if (todayItem && todayItem.status !== 'SEM_REGISTRO' && typeof todayItem.volume_m3 === 'number') {
+    hasTodayData = true;
+    todayVolM3Str = `${todayItem.volume_m3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} <span class="unit">m³</span>`;
+    const lit = typeof todayItem.volume_liters === 'number' ? todayItem.volume_liters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '--';
+    
+    if (isOnline) {
+      todayVolLitersSub = `${lit} L • 00:00 → agora`;
+    } else if (lastSignalTime) {
+      todayVolLitersSub = `${lit} L • 00:00 → ${lastSignalTime}`;
+    } else {
+      todayVolLitersSub = `${lit} L • cobertura indisponível`;
+    }
+  } else if (todayItem?.status === 'SEM_REGISTRO') {
+    todayVolM3Str = `-- <span class="unit">m³</span>`;
+    todayVolLitersSub = `Sem registros hoje`;
+  }
+
+  let todayAvgFlowStr = '-- <span class="unit">L/min</span>';
+  let todayMaxFlowStr = 'Pico: -- L/min';
+  let todayAvgFlowPopupStr = '--';
+  let todayMaxFlowPopupStr = '--';
+
+  if (hasTodayData && typeof todayItem.average_flow_lpm === 'number') {
+    const formattedAvg = todayItem.average_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+    todayAvgFlowStr = `${formattedAvg} <span class="unit">L/min</span>`;
+    todayAvgFlowPopupStr = `${formattedAvg} L/min`;
+  }
+  if (hasTodayData && typeof todayItem.max_flow_lpm === 'number') {
+    const formattedMax = todayItem.max_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+    todayMaxFlowStr = `Pico: ${formattedMax} L/min`;
+    todayMaxFlowPopupStr = `${formattedMax} L/min`;
+  }
+
+  const sysVol = systemSummaryCache?.system_volume_liters;
+  let totalVolM3Str = '-- m³';
+  let totalVolLitersStr = '-- L';
+  if (typeof sysVol === 'number') {
+    totalVolM3Str = `${(sysVol / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} m³`;
+    totalVolLitersStr = `${sysVol.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L`;
+  }
+
+  let lastPulseTime = '--:--:--';
+  const lastPulseIso = flowSummaryCache?.last_pulse_at || todayItem?.last_pulse_at || latestSess?.last_pulse_at;
+  if (lastPulseIso) {
+    lastPulseTime = new Date(lastPulseIso).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  }
+
+  const wifiRssi = telemetryCache?.rssi !== null && telemetryCache?.rssi !== undefined ? `${telemetryCache.rssi} dBm` : '-- dBm';
+  const calibFactor = systemSummaryCache?.liters_per_pulse || telemetryCache?.calibration?.liters_per_pulse || 101.63;
+  const pulsesTotal = systemSummaryCache?.system_pulse_total !== undefined
+    ? systemSummaryCache.system_pulse_total.toLocaleString('pt-BR')
+    : (telemetryCache?.pulse_total ? telemetryCache.pulse_total.toLocaleString('pt-BR') : '--');
+
+  return {
+    deviceId: 'HIDRO-001',
+    isOnline,
+    passageState,
+    passageBadgeClass,
+    passageDetail,
+    flowLabel,
+    flowLpmStr,
+    flowM3hStr,
+    flowNumericLpm,
+    todayStatus,
+    todayVolM3Str,
+    todayVolLitersSub,
+    todayAvgFlowStr,
+    todayMaxFlowStr,
+    todayAvgFlowPopupStr,
+    todayMaxFlowPopupStr,
+    totalVolM3Str,
+    totalVolLitersStr,
+    lastSignalHuman,
+    lastSignalTime: lastSignalTimeStr,
+    lastPulseTime,
+    lastPulseIso,
+    wifiRssi,
+    calibFactor,
+    pulsesTotal
+  };
+}
+
+// 6. Formatação do Popup Executivo com Dados Reais
+function generatePopupContent(snapshot) {
+  const snap = snapshot || buildExecutiveSnapshot();
+  const statusBadge = snap.isOnline
+    ? '<span class="popup-badge online">ONLINE</span>'
+    : '<span class="popup-badge offline">OFFLINE</span>';
+
+  const passageColor = snap.passageBadgeClass === 'status-online' ? 'color:#10b981;' : 'color:#64748b;';
+
+  return `
+    <div class="popup-executive-card">
+      <div class="popup-header">
+        <div>
+          <div class="popup-title">RESERVATÓRIO CENTRAL</div>
+          <span class="popup-tech-code">HIDRO-001</span>
+        </div>
+        <div>${statusBadge}</div>
+      </div>
+      <div class="popup-body">
+        <div class="popup-metric-row">
+          <span class="popup-metric-label">Passagem:</span>
+          <span class="popup-metric-val" style="${passageColor} font-weight:700;">${snap.passageState}</span>
+        </div>
+        <div class="popup-metric-row">
+          <span class="popup-metric-label">${snap.flowLabel}:</span>
+          <span class="popup-metric-val">${snap.flowLpmStr} <span style="font-size:10px; color:#64748b;">(${snap.flowM3hStr})</span></span>
+        </div>
+        <div class="popup-metric-row">
+          <span class="popup-metric-label">Volume Hoje:</span>
+          <span class="popup-metric-val">${snap.todayVolM3Str} <span style="font-size:10px; color:#64748b;">(${snap.todayVolLitersSub})</span></span>
+        </div>
+        <div class="popup-metric-row">
+          <span class="popup-metric-label">Média Hoje:</span>
+          <span class="popup-metric-val">${snap.todayAvgFlowPopupStr}</span>
+        </div>
+        <div class="popup-metric-row">
+          <span class="popup-metric-label">Pico Hoje:</span>
+          <span class="popup-metric-val">${snap.todayMaxFlowPopupStr}</span>
+        </div>
+        <div class="popup-metric-row">
+          <span class="popup-metric-label">Último Sinal:</span>
+          <span class="popup-metric-val">${snap.lastSignalHuman} <span style="font-size:10px; color:#64748b;">(${snap.lastSignalTime})</span></span>
+        </div>
+        <div class="popup-metric-row">
+          <span class="popup-metric-label">Último Pulso:</span>
+          <span class="popup-metric-val">${snap.lastPulseTime}</span>
+        </div>
+        <div class="popup-metric-row">
+          <span class="popup-metric-label">Acumulado Geral:</span>
+          <span class="popup-metric-val">${snap.totalVolM3Str}</span>
+        </div>
+      </div>
+      <div class="popup-tech-footer">
+        <div style="display:flex; justify-content:space-between;">
+          <span>Sinal: <strong>${snap.wifiRssi}</strong></span>
+          <span>Calibração: <strong>${snap.calibFactor} L/p</strong></span>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-top:2px;">
+          <span>Pulsos: <strong>${snap.pulsesTotal}</strong></span>
+          <span>Palmital / SP</span>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 // 5. Inicialização do Mapa Leaflet
@@ -253,110 +504,10 @@ function initMap() {
       offset: [0, -10]
     });
 
-    marker.bindPopup(generatePopupContent(false));
+    marker.bindPopup(generatePopupContent(buildExecutiveSnapshot()));
   } else {
     if (geoNotice) geoNotice.classList.remove('hidden');
   }
-}
-
-// 6. Formatação do Popup Executivo com Dados Reais
-function generatePopupContent(isOnline) {
-  const statusBadge = isOnline
-    ? '<span class="popup-badge online">ONLINE</span>'
-    : '<span class="popup-badge offline">OFFLINE</span>';
-
-  let lastRecHuman = 'Sem envio';
-  let lastRecTime = '--:--:--';
-  if (telemetryCache?.received_at) {
-    const d = new Date(telemetryCache.received_at);
-    lastRecHuman = formatHumanRelativeTime(telemetryCache.received_at);
-    lastRecTime = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-  }
-
-  // Volume
-  const sysVolLiters = systemSummaryCache?.system_volume_liters;
-  const volM3Str = typeof sysVolLiters === 'number'
-    ? `${(sysVolLiters / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} m³`
-    : '-- m³';
-  const volLitersStr = typeof sysVolLiters === 'number'
-    ? `${sysVolLiters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L`
-    : '-- L';
-
-  // Vazão
-  const flowInstStr = flowSummaryCache?.latest_flow_lpm !== null && flowSummaryCache?.latest_flow_lpm !== undefined
-    ? `${flowSummaryCache.latest_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`
-    : '-- L/min';
-  const flowM3hStr = flowSummaryCache?.latest_flow_m3h !== null && flowSummaryCache?.latest_flow_m3h !== undefined
-    ? `${flowSummaryCache.latest_flow_m3h.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} m³/h`
-    : '-- m³/h';
-  const flowAvgStr = flowSummaryCache?.average_flow_lpm !== null && flowSummaryCache?.average_flow_lpm !== undefined
-    ? `${flowSummaryCache.average_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`
-    : '-- L/min';
-  const flowMaxStr = flowSummaryCache?.max_flow_lpm !== null && flowSummaryCache?.max_flow_lpm !== undefined
-    ? `${flowSummaryCache.max_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`
-    : '-- L/min';
-
-  // Sessão / Passagem
-  const sum = sessionsCache?.summary;
-  const hasOpen = sum && sum.open_session;
-  const sessionStr = hasOpen
-    ? '<span style="color:#10b981; font-weight:700;">PASSAGEM ATIVA</span>'
-    : '<span style="color:#64748b; font-weight:700;">SEM PASSAGEM</span>';
-
-  // Detalhes Secundários
-  const rssiStr = telemetryCache?.rssi !== null && telemetryCache?.rssi !== undefined ? `${telemetryCache.rssi} dBm` : '-- dBm';
-  const calibFactor = systemSummaryCache?.liters_per_pulse || telemetryCache?.calibration?.liters_per_pulse || 101.63;
-  const pulsesStr = systemSummaryCache?.system_pulse_total !== undefined
-    ? systemSummaryCache.system_pulse_total.toLocaleString('pt-BR')
-    : (telemetryCache?.pulse_total ? telemetryCache.pulse_total.toLocaleString('pt-BR') : '--');
-
-  return `
-    <div class="popup-executive-card">
-      <div class="popup-header">
-        <div>
-          <div class="popup-title">RESERVATÓRIO CENTRAL</div>
-          <span class="popup-tech-code">HIDRO-001</span>
-        </div>
-        <div>${statusBadge}</div>
-      </div>
-      <div class="popup-body">
-        <div class="popup-metric-row">
-          <span class="popup-metric-label">Passagem:</span>
-          <span class="popup-metric-val">${sessionStr}</span>
-        </div>
-        <div class="popup-metric-row">
-          <span class="popup-metric-label">Vazão Atual:</span>
-          <span class="popup-metric-val">${flowInstStr} <span style="font-size:10px; color:#64748b;">(${flowM3hStr})</span></span>
-        </div>
-        <div class="popup-metric-row">
-          <span class="popup-metric-label">Volume Acumulado:</span>
-          <span class="popup-metric-val">${volM3Str} <span style="font-size:10px; color:#64748b;">(${volLitersStr})</span></span>
-        </div>
-        <div class="popup-metric-row">
-          <span class="popup-metric-label">Vazão Média:</span>
-          <span class="popup-metric-val">${flowAvgStr}</span>
-        </div>
-        <div class="popup-metric-row">
-          <span class="popup-metric-label">Pico de Vazão:</span>
-          <span class="popup-metric-val">${flowMaxStr}</span>
-        </div>
-        <div class="popup-metric-row">
-          <span class="popup-metric-label">Último Envio:</span>
-          <span class="popup-metric-val">${lastRecHuman} <span style="font-size:10px; color:#64748b;">(${lastRecTime})</span></span>
-        </div>
-      </div>
-      <div class="popup-tech-footer">
-        <div style="display:flex; justify-content:space-between;">
-          <span>Sinal: <strong>${rssiStr}</strong></span>
-          <span>Calibração: <strong>${calibFactor} L/p</strong></span>
-        </div>
-        <div style="display:flex; justify-content:space-between; margin-top:2px;">
-          <span>Pulsos: <strong>${pulsesStr}</strong></span>
-          <span>Palmital / SP</span>
-        </div>
-      </div>
-    </div>
-  `;
 }
 
 // 7. Consulta às APIs Reais Protegidas por Bearer
@@ -404,15 +555,29 @@ async function fetchSessionsData() {
   }
 }
 
-// 8. Atualização Visual da Interface
+async function fetchDailySummary() {
+  if (authFailureHandling) return;
+  try {
+    const res = await apiFetch('/api/telemetry/daily-summary?days=7', { cache: 'no-store' });
+    if (res && res.ok) {
+      const j = await res.json();
+      if (j.ok) {
+        dailySummaryCache = j;
+      }
+    }
+    updateUI();
+  } catch (err) {
+    console.error('Erro ao buscar daily summary no mapa:', err);
+  }
+}
+
+// 8. Atualização Visual da Interface com Snapshot Único
 function updateUI() {
-  const now = Date.now();
-  const recAt = telemetryCache?.received_at ? new Date(telemetryCache.received_at).getTime() : null;
-  const isOnline = recAt !== null && (now - recAt <= 20000);
+  const snapshot = buildExecutiveSnapshot();
 
   // A. Header Communication Status
   if (commStatusBadge) {
-    if (isOnline) {
+    if (snapshot.isOnline) {
       commStatusBadge.className = 'status-indicator status-online';
       commStatusBadge.textContent = 'ONLINE';
     } else {
@@ -422,152 +587,64 @@ function updateUI() {
   }
 
   // B. Top Metric Cards (5 Cards Executivos)
-  if (valOnlinePoints) valOnlinePoints.textContent = isOnline ? '1' : '0';
+  if (valOnlinePoints) valOnlinePoints.textContent = snapshot.isOnline ? '1' : '0';
 
-  // Volume Acumulado (m³ em destaque)
-  const sysVol = systemSummaryCache?.system_volume_liters;
+  // Volume Hoje (m³ em destaque)
   if (valTotalVolumeM3Main && valTotalVolumeLitersSub) {
-    if (typeof sysVol === 'number') {
-      const m3 = sysVol / 1000;
-      valTotalVolumeM3Main.innerHTML = `${m3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} <span class="unit">m³</span>`;
-      valTotalVolumeLitersSub.textContent = `${sysVol.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L acumulados`;
-    } else {
-      valTotalVolumeM3Main.innerHTML = `-- <span class="unit">m³</span>`;
-      valTotalVolumeLitersSub.textContent = 'Volume pendente';
-    }
+    valTotalVolumeM3Main.innerHTML = snapshot.todayVolM3Str;
+    valTotalVolumeLitersSub.textContent = `${snapshot.todayVolLitersSub} • Total: ${snapshot.totalVolM3Str}`;
   }
 
-  // Vazão Atual (L/min em destaque)
+  // Vazão Atual ou Última Medição
+  if (valFlowTitleTop) valFlowTitleTop.textContent = snapshot.flowLabel;
   if (valCurrentFlowMain && valCurrentFlowM3hSub) {
-    const flowLpm = flowSummaryCache?.latest_flow_lpm;
-    const flowM3h = flowSummaryCache?.latest_flow_m3h;
-    if (flowLpm !== null && flowLpm !== undefined) {
-      valCurrentFlowMain.innerHTML = `${flowLpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} <span class="unit">L/min</span>`;
-      valCurrentFlowM3hSub.textContent = `${flowM3h !== null && flowM3h !== undefined ? flowM3h.toLocaleString('pt-BR', { minimumFractionDigits: 3 }) : '--'} m³/h`;
-    } else {
-      valCurrentFlowMain.innerHTML = `-- <span class="unit">L/min</span>`;
-      valCurrentFlowM3hSub.textContent = '-- m³/h';
-    }
+    valCurrentFlowMain.innerHTML = snapshot.flowLpmStr;
+    valCurrentFlowM3hSub.textContent = snapshot.flowM3hStr;
   }
 
   // Passagem Top Card
   if (valSessionStatusTop && valSessionDetailTop) {
-    const sum = sessionsCache?.summary;
-    const hasOpen = sum && sum.open_session;
-    const latestSess = sum && sum.latest_session;
-
-    if (hasOpen) {
-      valSessionStatusTop.innerHTML = `<span style="color: #10b981; font-weight: 800;">PASSAGEM ATIVA</span>`;
-      const durSec = latestSess?.duration_seconds || 0;
-      valSessionDetailTop.textContent = `Em curso (${Math.round(durSec / 60)} min • ${latestSess?.pulse_count || 0}p)`;
-    } else {
-      valSessionStatusTop.innerHTML = `<span style="color: #64748b; font-weight: 800;">SEM PASSAGEM</span>`;
-      if (latestSess && latestSess.last_pulse_at) {
-        const lastD = new Date(latestSess.last_pulse_at);
-        valSessionDetailTop.textContent = `Última: ${lastD.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}`;
-      } else {
-        valSessionDetailTop.textContent = 'Sem registros';
-      }
-    }
+    const colorStyle = snapshot.passageBadgeClass === 'status-online' ? 'color: #10b981;' : 'color: #64748b;';
+    valSessionStatusTop.innerHTML = `<span style="${colorStyle} font-weight: 800;">${snapshot.passageState}</span>`;
+    valSessionDetailTop.textContent = snapshot.passageDetail;
   }
 
   // C. Side Card HIDRO-001 (RESERVATÓRIO CENTRAL)
   if (hidroStatusPill) {
-    if (isOnline) {
-      hidroStatusPill.className = 'status-pill status-online';
-      hidroStatusPill.textContent = 'ONLINE';
-    } else {
-      hidroStatusPill.className = 'status-pill status-offline';
-      hidroStatusPill.textContent = 'OFFLINE';
-    }
+    hidroStatusPill.className = snapshot.isOnline ? 'status-pill status-online' : 'status-pill status-offline';
+    hidroStatusPill.textContent = snapshot.isOnline ? 'ONLINE' : 'OFFLINE';
   }
 
-  // Vazão do Card Lateral
+  if (hidroFlowLabel) hidroFlowLabel.textContent = snapshot.flowLabel;
   if (hidroFlowRecent && hidroFlowM3h) {
-    if (flowSummaryCache?.latest_flow_lpm !== null && flowSummaryCache?.latest_flow_lpm !== undefined) {
-      hidroFlowRecent.innerHTML = `${flowSummaryCache.latest_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} <span class="unit">L/min</span>`;
-      hidroFlowM3h.textContent = `${flowSummaryCache.latest_flow_m3h !== null ? flowSummaryCache.latest_flow_m3h.toLocaleString('pt-BR', { minimumFractionDigits: 3 }) : '--'} m³/h`;
-    } else {
-      hidroFlowRecent.innerHTML = `-- <span class="unit">L/min</span>`;
-      hidroFlowM3h.textContent = '-- m³/h';
-    }
+    hidroFlowRecent.innerHTML = snapshot.flowLpmStr;
+    hidroFlowM3h.textContent = snapshot.flowM3hStr;
   }
 
-  // Volume do Card Lateral
   if (hidroVolumeM3 && hidroVolumeLiters) {
-    if (typeof sysVol === 'number') {
-      const m3 = sysVol / 1000;
-      hidroVolumeM3.innerHTML = `${m3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} <span class="unit">m³</span>`;
-      hidroVolumeLiters.textContent = `${sysVol.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L acumulados`;
-    } else {
-      hidroVolumeM3.innerHTML = `-- <span class="unit">m³</span>`;
-      hidroVolumeLiters.textContent = '-- L';
-    }
+    hidroVolumeM3.innerHTML = snapshot.todayVolM3Str;
+    hidroVolumeLiters.textContent = `${snapshot.todayVolLitersSub} • Total: ${snapshot.totalVolM3Str}`;
   }
 
-  // Vazão Média e Pico do Card Lateral
   if (hidroFlowAvg && hidroFlowMax) {
-    const avgFlow = flowSummaryCache?.average_flow_lpm;
-    const maxFlow = flowSummaryCache?.max_flow_lpm;
-    hidroFlowAvg.innerHTML = avgFlow !== null && avgFlow !== undefined
-      ? `${avgFlow.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} <span class="unit">L/min</span>`
-      : `-- <span class="unit">L/min</span>`;
-    hidroFlowMax.textContent = maxFlow !== null && maxFlow !== undefined
-      ? `Pico: ${maxFlow.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L/min`
-      : `Pico: -- L/min`;
+    hidroFlowAvg.innerHTML = snapshot.todayAvgFlowStr;
+    hidroFlowMax.textContent = snapshot.todayMaxFlowStr;
   }
 
-  // Passagem do Card Lateral
   if (hidroSessionStatus && hidroSessionDetail) {
-    const sum = sessionsCache?.summary;
-    const hasOpen = sum && sum.open_session;
-    const latestSess = sum && sum.latest_session;
-
-    if (hasOpen) {
-      hidroSessionStatus.innerHTML = `<span style="color: #10b981; font-weight: 700;">PASSAGEM ATIVA</span>`;
-      const durSec = latestSess?.duration_seconds || 0;
-      hidroSessionDetail.textContent = `Duração: ${Math.round(durSec / 60)} min • ${latestSess?.pulse_count || 0}p`;
-    } else {
-      hidroSessionStatus.innerHTML = `<span style="color: #64748b; font-weight: 700;">SEM PASSAGEM</span>`;
-      if (latestSess && latestSess.last_pulse_at) {
-        const lastD = new Date(latestSess.last_pulse_at);
-        hidroSessionDetail.textContent = `Última: ${lastD.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}`;
-      } else {
-        hidroSessionDetail.textContent = 'Sem registros';
-      }
-    }
+    const colorStyle = snapshot.passageBadgeClass === 'status-online' ? 'color: #10b981;' : 'color: #64748b;';
+    hidroSessionStatus.innerHTML = `<span style="${colorStyle} font-weight: 700;">${snapshot.passageState}</span>`;
+    hidroSessionDetail.textContent = snapshot.passageDetail;
   }
 
-  // Informações de Recebimento do Card Lateral
   if (hidroLastReceivedHuman && hidroLastReceivedTime) {
-    if (telemetryCache?.received_at) {
-      const d = new Date(telemetryCache.received_at);
-      hidroLastReceivedHuman.textContent = formatHumanRelativeTime(telemetryCache.received_at);
-      hidroLastReceivedTime.textContent = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-    } else {
-      hidroLastReceivedHuman.textContent = '--';
-      hidroLastReceivedTime.textContent = '--:--:--';
-    }
+    hidroLastReceivedHuman.textContent = snapshot.lastSignalHuman;
+    hidroLastReceivedTime.textContent = snapshot.lastSignalTime;
   }
 
-  // Detalhes Secundários do Card Lateral
-  if (hidroRssi) {
-    hidroRssi.textContent = telemetryCache?.rssi !== null && telemetryCache?.rssi !== undefined
-      ? `${telemetryCache.rssi} dBm`
-      : '-- dBm';
-  }
-
-  if (hidroCalibFactor) {
-    const calib = systemSummaryCache?.liters_per_pulse || telemetryCache?.calibration?.liters_per_pulse || 101.63;
-    hidroCalibFactor.textContent = `${calib} L/p`;
-  }
-
-  if (hidroPulsesTotal) {
-    const pulses = systemSummaryCache?.system_pulse_total !== undefined
-      ? systemSummaryCache.system_pulse_total
-      : (telemetryCache?.pulse_total || 0);
-    hidroPulsesTotal.textContent = `${pulses.toLocaleString('pt-BR')} p`;
-  }
+  if (hidroRssi) hidroRssi.textContent = snapshot.wifiRssi;
+  if (hidroCalibFactor) hidroCalibFactor.textContent = `${snapshot.calibFactor} L/p`;
+  if (hidroPulsesTotal) hidroPulsesTotal.textContent = `${snapshot.pulsesTotal} p`;
 
   if (hidroGeoStatus) {
     const hidro = POINTS_CONFIG[0];
@@ -580,16 +657,16 @@ function updateUI() {
     }
   }
 
-  // Atualização do Marcador e Popup no Leaflet
+  // D. Atualização do Marcador e Popup no Leaflet
   if (marker) {
-    marker.setIcon(createMarkerIcon(isOnline));
-    marker.setPopupContent(generatePopupContent(isOnline));
+    marker.setIcon(createMarkerIcon(snapshot.isOnline));
+    marker.setPopupContent(generatePopupContent(snapshot));
   }
 
-  // D. Filtros e Busca
-  applyFilters(isOnline);
+  // E. Filtros e Busca
+  applyFilters(snapshot.isOnline);
 
-  // E. Footer Status Bar
+  // F. Footer Status Bar
   if (barLastEsp) {
     if (telemetryCache?.received_at) {
       const d = new Date(telemetryCache.received_at);
@@ -617,6 +694,7 @@ function updateUI() {
     mapValLastPulseRelative.textContent = lastPulseAt ? formatHumanRelativeTime(lastPulseAt) : 'Nenhum pulso registrado';
   }
 }
+
 
 // 9. Filtros e Busca em Memória
 function applyFilters(isOnline) {
@@ -989,6 +1067,7 @@ function setupEventListeners() {
     btnRefresh.addEventListener('click', () => {
       fetchTelemetryData();
       fetchSessionsData();
+      fetchDailySummary();
       fetchFlowChart24h();
     });
   }
@@ -1111,12 +1190,14 @@ async function initAuthAndApp() {
       await Promise.allSettled([
         fetchTelemetryData(),
         fetchSessionsData(),
+        fetchDailySummary(),
         fetchFlowChart24h()
       ]);
 
       if (!authFailureHandling) {
         registerInterval(fetchTelemetryData, 5000);
         registerInterval(fetchSessionsData, 15000);
+        registerInterval(fetchDailySummary, 60000); // Polling suave de 60s para daily summary
         registerInterval(fetchFlowChart24h, 60000); // Polling suave de 60s para o gráfico 24h
       }
     }

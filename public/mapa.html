@@ -89,20 +89,20 @@
         <div class="metric-sub" id="sub-online-points">Em operação contínua</div>
       </div>
 
-      <!-- Card 3: Volume Acumulado (m³ em destaque) -->
+      <!-- Card 3: Volume Hoje (m³ em destaque) -->
       <div class="metric-card">
         <div class="metric-header">
-          <span class="metric-title">VOLUME ACUMULADO</span>
+          <span class="metric-title">VOLUME HOJE</span>
           <span class="metric-icon-badge">💧</span>
         </div>
         <div class="metric-value font-mono" id="val-total-volume-m3-main">-- <span class="unit">m³</span></div>
-        <div class="metric-sub font-mono" id="val-total-volume-liters-sub">-- L acumulados</div>
+        <div class="metric-sub font-mono" id="val-total-volume-liters-sub">00:00 → agora</div>
       </div>
 
-      <!-- Card 4: Vazão Atual (L/min em destaque) -->
+      <!-- Card 4: Vazão Atual ou Última Medição -->
       <div class="metric-card">
         <div class="metric-header">
-          <span class="metric-title">VAZÃO ATUAL</span>
+          <span class="metric-title" id="val-flow-title-top">VAZÃO ATUAL</span>
           <span class="metric-icon-badge">⚡</span>
         </div>
         <div class="metric-value font-mono" id="val-current-flow-main">-- <span class="unit">L/min</span></div>
@@ -194,19 +194,19 @@
             <!-- Grade Executiva de Métricas do Ponto -->
             <div class="device-metrics-grid">
               <div class="device-metric-cell">
-                <span class="cell-label">VAZÃO ATUAL</span>
+                <span class="cell-label" id="hidro-flow-label">VAZÃO ATUAL</span>
                 <span class="cell-value font-mono" id="hidro-flow-recent">-- <span class="unit">L/min</span></span>
                 <span class="cell-sub font-mono" id="hidro-flow-m3h">-- m³/h</span>
               </div>
 
               <div class="device-metric-cell">
-                <span class="cell-label">VOLUME ACUMULADO</span>
+                <span class="cell-label">VOLUME HOJE</span>
                 <span class="cell-value font-mono" id="hidro-volume-m3">-- <span class="unit">m³</span></span>
-                <span class="cell-sub font-mono" id="hidro-volume-liters">-- L</span>
+                <span class="cell-sub font-mono" id="hidro-volume-liters">00:00 → agora</span>
               </div>
 
               <div class="device-metric-cell">
-                <span class="cell-label">VAZÃO MÉDIA / PICO</span>
+                <span class="cell-label" id="hidro-flow-avg-label">MÉDIA / PICO HOJE</span>
                 <span class="cell-value font-mono" id="hidro-flow-avg">-- <span class="unit">L/min</span></span>
                 <span class="cell-sub font-mono" id="hidro-flow-max">Pico: -- L/min</span>
               </div>
