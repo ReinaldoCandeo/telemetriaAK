@@ -1,38 +1,10 @@
 let supabaseClient = null;
+let isSubmitting = false;
 
-// Inicializa o cliente Supabase buscando configuração pública do servidor
-async function initSupabaseClient() {
-  try {
-    const res = await fetch('/api/auth/config', { cache: 'no-store' });
-    if (!res.ok) return null;
-    const cfg = await res.json();
+// 1. Detectar forceReauth antes de qualquer verificação de sessão
+const forceReauth = new URLSearchParams(window.location.search).get('expired') === '1';
 
-    const key = cfg.supabase_publishable_key || cfg.supabase_anon_key;
-    if (cfg.ok && cfg.supabase_url && key && window.supabase) {
-      supabaseClient = window.supabase.createClient(cfg.supabase_url, key);
-      
-      // Verificar se já existe sessão ativa e válida ao carregar a tela
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if (session?.user && session?.access_token) {
-        const { data: { user } } = await supabaseClient.auth.getUser();
-        const role = user?.app_metadata?.role;
-        if (role === 'admin') {
-          window.location.replace('/');
-          return;
-        } else if (role === 'viewer') {
-          window.location.replace('/mapa.html');
-          return;
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('Aviso: Configuração pública do Supabase não carregada:', err);
-  }
-}
-
-initSupabaseClient();
-
-// 2. Elementos do DOM
+// 2. Elementos do DOM (declarados antes para uso em initSupabaseClient se necessário)
 const loginForm = document.getElementById('login-form');
 const inputEmail = document.getElementById('input-email');
 const inputPassword = document.getElementById('input-password');
@@ -57,19 +29,6 @@ function hideError() {
   errorBanner.classList.add('hidden');
 }
 
-// Verificar parâmetro ?expired=1 na URL para aviso discreto inline
-try {
-  const urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.get('expired') === '1') {
-    showError('Sua sessão expirou. Entre novamente.');
-    if (window.history && window.history.replaceState) {
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }
-} catch (e) {
-  console.warn('Erro ao processar parâmetros da URL:', e);
-}
-
 function setLoading(isLoading) {
   if (!btnLogin || !btnText || !btnSpinner) return;
   if (isLoading) {
@@ -82,6 +41,52 @@ function setLoading(isLoading) {
     btnSpinner.classList.add('hidden');
   }
 }
+
+// Inicializa o cliente Supabase buscando configuração pública do servidor
+async function initSupabaseClient() {
+  try {
+    const res = await fetch('/api/auth/config', { cache: 'no-store' });
+    if (!res.ok) return null;
+    const cfg = await res.json();
+
+    const key = cfg.supabase_publishable_key || cfg.supabase_anon_key;
+    if (cfg.ok && cfg.supabase_url && key && window.supabase) {
+      supabaseClient = window.supabase.createClient(cfg.supabase_url, key);
+      
+      // Se veio com ?expired=1, limpar sessão residual localmente e bloquear auto-login
+      if (forceReauth) {
+        try {
+          await supabaseClient.auth.signOut({ scope: 'local' });
+        } catch (e) {
+          try { await supabaseClient.auth.signOut(); } catch (err) {}
+        }
+        showError('Sua sessão expirou. Entre novamente.');
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        return;
+      }
+
+      // Se NÃO for forceReauth, verificar se já existe sessão ativa e válida ao carregar a tela
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (session?.user && session?.access_token) {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        const role = user?.app_metadata?.role;
+        if (role === 'admin') {
+          window.location.replace('/');
+          return;
+        } else if (role === 'viewer') {
+          window.location.replace('/mapa.html');
+          return;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Aviso: Configuração pública do Supabase não carregada:', err);
+  }
+}
+
+initSupabaseClient();
 
 // 4. Toggle de Visibilidade da Senha
 if (btnTogglePw && inputPassword) {
@@ -102,6 +107,8 @@ if (btnTogglePw && inputPassword) {
 
 // 5. Processamento de Login
 async function handleLogin(email, password) {
+  if (isSubmitting) return;
+  isSubmitting = true;
   hideError();
   setLoading(true);
 
@@ -112,6 +119,7 @@ async function handleLogin(email, password) {
 
     if (!supabaseClient) {
       showError('Chave pública Supabase pendente de configuração.');
+      isSubmitting = false;
       setLoading(false);
       return;
     }
@@ -124,6 +132,7 @@ async function handleLogin(email, password) {
 
     if (error || !data?.user || !data?.session) {
       showError('E-mail ou senha inválidos.');
+      isSubmitting = false;
       setLoading(false);
       return;
     }
@@ -132,6 +141,7 @@ async function handleLogin(email, password) {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
       showError('Erro ao validar perfil de usuário.');
+      isSubmitting = false;
       setLoading(false);
       return;
     }
@@ -140,20 +150,26 @@ async function handleLogin(email, password) {
     const role = user.app_metadata?.role;
 
     if (role === 'admin') {
-      // ADMIN -> Dashboard Principal
+      // ADMIN -> Dashboard Principal (mantém isSubmitting = true durante navegação)
       window.location.replace('/');
     } else if (role === 'viewer') {
-      // VIEWER -> Mapa Operacional
+      // VIEWER -> Mapa Operacional (mantém isSubmitting = true durante navegação)
       window.location.replace('/mapa.html');
     } else {
       // Role não autorizada / inexistente -> desconectar imediatamente
-      await supabaseClient.auth.signOut();
+      try {
+        await supabaseClient.auth.signOut({ scope: 'local' });
+      } catch (e) {
+        try { await supabaseClient.auth.signOut(); } catch (err) {}
+      }
       showError('Usuário sem permissão de acesso ao sistema.');
+      isSubmitting = false;
       setLoading(false);
     }
 
   } catch (err) {
     showError('Erro ao comunicar com o servidor de autenticação.');
+    isSubmitting = false;
     setLoading(false);
   }
 }

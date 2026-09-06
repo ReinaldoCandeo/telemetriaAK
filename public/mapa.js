@@ -66,7 +66,11 @@ async function handleUnauthorizedOnce() {
   clearAllIntervals();
 
   if (supabaseClient) {
-    try { await supabaseClient.auth.signOut(); } catch (e) {}
+    try {
+      await supabaseClient.auth.signOut({ scope: 'local' });
+    } catch (e) {
+      try { await supabaseClient.auth.signOut(); } catch (err) {}
+    }
   }
 
   window.location.replace('/login.html?expired=1');
@@ -147,12 +151,16 @@ async function apiFetch(url, options = {}, isRetry = false) {
     }
   }
 
+  if (authFailureHandling) return new Response(null, { status: 401 });
+
   const headers = {
     ...(options.headers || {}),
     'Authorization': `Bearer ${token}`
   };
 
   const response = await fetch(url, { ...options, headers });
+
+  if (authFailureHandling) return new Response(null, { status: 401 });
 
   if (response.status === 401) {
     if (!isRetry) {
