@@ -84,10 +84,11 @@ async function adminFetch(url, options = {}, isRetry = false) {
     return new Response(null, { status: 401 });
   }
 
+  const tokenUsed = token;
   const headers = {
     'Content-Type': 'application/json',
     ...(options.headers || {}),
-    'Authorization': `Bearer ${token}`
+    'Authorization': `Bearer ${tokenUsed}`
   };
 
   const response = await fetch(url, {
@@ -101,6 +102,14 @@ async function adminFetch(url, options = {}, isRetry = false) {
 
   if (response.status === 401) {
     if (!isRetry) {
+      // 1. Verificar se a sessão atual já foi renovada por outra requisição concorrente (stale 401)
+      const currentToken = await getAdminAccessToken();
+      if (currentToken && currentToken !== tokenUsed) {
+        // Sessão já possui token novo: retentar uma única vez sem disparar novo refresh
+        return adminFetch(url, options, true);
+      }
+
+      // 2. Token ainda é o mesmo ou ausente: acionar refreshSession single-flight
       const newToken = await tryRefreshSession();
       if (newToken) {
         return adminFetch(url, options, true);

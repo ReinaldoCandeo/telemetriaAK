@@ -165,9 +165,10 @@ async function apiFetch(url, options = {}, isRetry = false) {
 
   if (authFailureHandling) return new Response(null, { status: 401 });
 
+  const tokenUsed = token;
   const headers = {
     ...(options.headers || {}),
-    'Authorization': `Bearer ${token}`
+    'Authorization': `Bearer ${tokenUsed}`
   };
 
   const response = await fetch(url, { ...options, headers });
@@ -176,6 +177,21 @@ async function apiFetch(url, options = {}, isRetry = false) {
 
   if (response.status === 401) {
     if (!isRetry) {
+      // 1. Verificar se a sessão atual já foi renovada por outra requisição concorrente (stale 401)
+      let currentToken = null;
+      try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        currentToken = session?.access_token || null;
+      } catch (e) {
+        currentToken = null;
+      }
+
+      if (currentToken && currentToken !== tokenUsed) {
+        // Sessão já possui token novo: retentar uma única vez sem disparar novo refresh
+        return apiFetch(url, options, true);
+      }
+
+      // 2. Token ainda é o mesmo ou ausente: acionar refreshSession single-flight
       const newToken = await tryRefreshSession();
       if (newToken) {
         return apiFetch(url, options, true);
