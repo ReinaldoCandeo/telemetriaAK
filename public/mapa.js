@@ -37,21 +37,79 @@ function clearAllIntervals() {
   activeIntervals = [];
 }
 
+function logAuthEvent(eventType, meta = {}) {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    event: eventType,
+    online: typeof navigator !== 'undefined' ? navigator.onLine : null,
+    visibility: typeof document !== 'undefined' ? document.visibilityState : null,
+    ...meta
+  };
+  if (eventType.includes('INVALID') || eventType.includes('SECOND_401')) {
+    console.warn('[AUTH_MAPA]', payload);
+  } else {
+    console.debug('[AUTH_MAPA]', payload);
+  }
+}
+
 async function tryRefreshSession() {
   if (refreshSessionPromise) return refreshSessionPromise;
 
   refreshSessionPromise = (async () => {
     try {
-      if (!supabaseClient) return null;
-      const { data, error } = await supabaseClient.auth.refreshSession();
-      if (error || !data?.session?.access_token) {
-        const { data: sData } = await supabaseClient.auth.getSession();
-        return sData?.session?.access_token || null;
+      if (!supabaseClient) {
+        return { status: 'transient_error', reason: 'client_not_ready' };
       }
-      return data.session.access_token;
+
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        logAuthEvent('AUTH_REFRESH_TRANSIENT', { reason: 'offline' });
+        return { status: 'transient_error', reason: 'offline' };
+      }
+
+      const { data, error } = await supabaseClient.auth.refreshSession();
+
+      if (error) {
+        const errMsg = String(error.message || error.description || error.error_description || '');
+        const errStatus = error.status || (error.response ? error.response.status : null);
+        const errName = String(error.name || '');
+
+        const isNetwork = errName === 'TypeError' ||
+          /failed to fetch|network|timeout|fetch error|abort|connection/i.test(errMsg) ||
+          (errStatus && errStatus >= 500);
+
+        if (isNetwork) {
+          logAuthEvent('AUTH_REFRESH_TRANSIENT', { status: errStatus, message: errMsg });
+          return { status: 'transient_error', error };
+        }
+
+        const isAuthInvalid = errStatus === 400 || errStatus === 401 ||
+          /invalid_grant|invalid_token|refresh_token_not_found|token_expired|session_not_found|bad_jwt/i.test(errMsg);
+
+        if (isAuthInvalid) {
+          logAuthEvent('AUTH_REFRESH_INVALID', { status: errStatus, message: errMsg });
+          return { status: 'auth_invalid', error };
+        }
+
+        logAuthEvent('AUTH_REFRESH_TRANSIENT', { status: errStatus, message: errMsg, fallback: true });
+        return { status: 'transient_error', error };
+      }
+
+      if (data?.session?.access_token) {
+        logAuthEvent('AUTH_REFRESH_OK');
+        return { status: 'ok', token: data.session.access_token };
+      }
+
+      const { data: sData } = await supabaseClient.auth.getSession();
+      if (sData?.session?.access_token) {
+        logAuthEvent('AUTH_REFRESH_OK', { source: 'getSession' });
+        return { status: 'ok', token: sData.session.access_token };
+      }
+
+      return { status: 'transient_error', reason: 'no_session_returned' };
     } catch (err) {
-      console.warn('Falha ao renovar sessão no mapa:', err);
-      return null;
+      const isTypeError = err instanceof TypeError || /failed to fetch|network/i.test(err?.message || '');
+      logAuthEvent('AUTH_REFRESH_TRANSIENT', { exception: isTypeError ? 'network_type_error' : 'generic_catch' });
+      return { status: 'transient_error', error: err };
     } finally {
       refreshSessionPromise = null;
     }
@@ -143,8 +201,7 @@ const barLastRefresh = document.getElementById('bar-last-refresh');
 async function apiFetch(url, options = {}, isRetry = false) {
   if (authFailureHandling) return new Response(null, { status: 401 });
   if (!supabaseClient) {
-    handleUnauthorizedOnce();
-    return new Response(null, { status: 401 });
+    return new Response(null, { status: 503, statusText: 'Client Not Initialized' });
   }
 
   let token = null;
@@ -156,10 +213,14 @@ async function apiFetch(url, options = {}, isRetry = false) {
   }
 
   if (!token) {
-    token = await tryRefreshSession();
-    if (!token) {
+    const refreshRes = await tryRefreshSession();
+    if (refreshRes.status === 'ok') {
+      token = refreshRes.token;
+    } else if (refreshRes.status === 'auth_invalid') {
       handleUnauthorizedOnce();
       return new Response(null, { status: 401 });
+    } else {
+      return new Response(null, { status: 503, statusText: 'Transient Network Error' });
     }
   }
 
@@ -171,7 +232,12 @@ async function apiFetch(url, options = {}, isRetry = false) {
     'Authorization': `Bearer ${tokenUsed}`
   };
 
-  const response = await fetch(url, { ...options, headers });
+  let response;
+  try {
+    response = await fetch(url, { ...options, headers });
+  } catch (netErr) {
+    return new Response(null, { status: 503, statusText: 'Network Connection Failed' });
+  }
 
   if (authFailureHandling) return new Response(null, { status: 401 });
 
@@ -187,18 +253,25 @@ async function apiFetch(url, options = {}, isRetry = false) {
       }
 
       if (currentToken && currentToken !== tokenUsed) {
-        // Sessão já possui token novo: retentar uma única vez sem disparar novo refresh
+        logAuthEvent('AUTH_STALE_401', { url });
         return apiFetch(url, options, true);
       }
 
       // 2. Token ainda é o mesmo ou ausente: acionar refreshSession single-flight
-      const newToken = await tryRefreshSession();
-      if (newToken) {
+      const refreshRes = await tryRefreshSession();
+      if (refreshRes.status === 'ok') {
         return apiFetch(url, options, true);
+      } else if (refreshRes.status === 'transient_error') {
+        return response;
+      } else {
+        handleUnauthorizedOnce();
+        return response;
       }
+    } else {
+      logAuthEvent('AUTH_SECOND_401', { url, status: 401 });
+      handleUnauthorizedOnce();
+      return response;
     }
-    handleUnauthorizedOnce();
-    return response;
   }
 
   if (response.status === 403) {
@@ -1291,13 +1364,15 @@ async function initAuthAndApp() {
     let { user, isAuthError } = await getUserWithRetry(supabaseClient, 2);
 
     if (isAuthError || (!user && !isAuthError)) {
-      const newToken = await tryRefreshSession();
-      if (newToken) {
+      const refreshRes = await tryRefreshSession();
+      if (refreshRes.status === 'ok') {
         const retryUser = await getUserWithRetry(supabaseClient, 1);
         if (retryUser.user) {
           user = retryUser.user;
           isAuthError = false;
         }
+      } else if (refreshRes.status === 'auth_invalid') {
+        isAuthError = true;
       }
     }
 
@@ -1348,6 +1423,7 @@ async function initAuthAndApp() {
 
     // H. Carga Inicial de Dados e Início de Polling Gerenciado
     if (!authFailureHandling) {
+      isAppInitialized = true;
       await Promise.allSettled([
         fetchTelemetryData(),
         fetchSessionsData(),
@@ -1356,10 +1432,7 @@ async function initAuthAndApp() {
       ]);
 
       if (!authFailureHandling) {
-        registerInterval(fetchTelemetryData, 5000);
-        registerInterval(fetchSessionsData, 15000);
-        registerInterval(fetchDailySummary, 60000); // Polling suave de 60s para daily summary
-        registerInterval(fetchFlowChart24h, 60000); // Polling suave de 60s para o gráfico 24h
+        startPollingIntervals();
       }
     }
 
@@ -1369,6 +1442,93 @@ async function initAuthAndApp() {
     alert('Erro inesperado ao inicializar o mapa. Recarregue a página.');
   }
 }
+
+let isAppInitialized = false;
+let resumePromise = null;
+
+function pausePolling() {
+  clearAllIntervals();
+}
+
+function startPollingIntervals() {
+  clearAllIntervals();
+  if (authFailureHandling) return;
+
+  registerInterval(fetchTelemetryData, 5000);
+  registerInterval(fetchSessionsData, 15000);
+  registerInterval(fetchDailySummary, 60000);
+  registerInterval(fetchFlowChart24h, 60000);
+}
+
+async function resumePolling() {
+  if (authFailureHandling || !isAppInitialized) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+
+  if (resumePromise) return resumePromise;
+
+  resumePromise = (async () => {
+    try {
+      const session = await getSessionWithShortRetry(supabaseClient, 2);
+      if (!session) {
+        const refreshRes = await tryRefreshSession();
+        if (refreshRes.status === 'auth_invalid') {
+          handleUnauthorizedOnce();
+          return;
+        } else if (refreshRes.status === 'transient_error') {
+          return;
+        }
+      }
+
+      await Promise.allSettled([
+        fetchTelemetryData(),
+        fetchSessionsData(),
+        fetchDailySummary(),
+        fetchFlowChart24h()
+      ]);
+
+      if (!authFailureHandling && (!document.hidden || typeof document === 'undefined')) {
+        startPollingIntervals();
+      }
+    } catch (err) {
+      console.warn('Falha na retomada de polling no mapa:', err);
+    } finally {
+      resumePromise = null;
+    }
+  })();
+
+  return resumePromise;
+}
+
+// Lifecycle Listeners (Background Pause / Foreground Resume / Offline / Online / BFCache)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    logAuthEvent('AUTH_BACKGROUND_PAUSE');
+    pausePolling();
+  } else {
+    logAuthEvent('AUTH_FOREGROUND_RESUME');
+    resumePolling();
+  }
+});
+
+window.addEventListener('offline', () => {
+  logAuthEvent('AUTH_BACKGROUND_PAUSE', { trigger: 'offline' });
+  pausePolling();
+});
+
+window.addEventListener('online', () => {
+  logAuthEvent('AUTH_FOREGROUND_RESUME', { trigger: 'online' });
+  if (!document.hidden) {
+    resumePolling();
+  }
+});
+
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) {
+    logAuthEvent('AUTH_FOREGROUND_RESUME', { trigger: 'bfcache' });
+    resumePolling();
+  }
+});
 
 document.addEventListener('DOMContentLoaded', () => {
   initAuthAndApp();
