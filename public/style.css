@@ -13,23 +13,30 @@
   --scada-border-focus: #0284c7;
 
   /* Tipografia & Cores de Texto */
-  --text-heading: #0f172a;       /* Navy Escuro */
-  --text-body: #334155;          /* Cinza Slate Médio */
-  --text-muted: #64748b;         /* Cinza Suave */
+  --text-heading: #0f172a;
+  /* Navy Escuro */
+  --text-body: #334155;
+  /* Cinza Slate Médio */
+  --text-muted: #64748b;
+  /* Cinza Suave */
   --text-subtle: #94a3b8;
 
   /* Cores de Destaque SCADA */
   --scada-navy: #0f172a;
   --scada-navy-header: #1e293b;
-  --scada-blue: #0284c7;         /* Azul Saneamento */
+  --scada-blue: #0284c7;
+  /* Azul Saneamento */
   --scada-blue-hover: #0369a1;
   --scada-cyan: #06b6d4;
   --scada-cyan-light: #ecfeff;
-  --scada-emerald: #059669;      /* Verde Operacional */
+  --scada-emerald: #059669;
+  /* Verde Operacional */
   --scada-emerald-bg: #ecfdf5;
-  --scada-amber: #d97706;        /* Amarelo Alerta */
+  --scada-amber: #d97706;
+  /* Amarelo Alerta */
   --scada-amber-bg: #fffbeb;
-  --scada-rose: #dc2626;         /* Vermelho Erro */
+  --scada-rose: #dc2626;
+  /* Vermelho Erro */
   --scada-rose-bg: #fef2f2;
 
   /* Sombras Sutis Industriais */
@@ -249,8 +256,15 @@ body {
 }
 
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .pulse-toast .pulse-icon {
@@ -285,7 +299,9 @@ body {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .waiting-icon {
@@ -314,12 +330,33 @@ body {
    ========================================================================== */
 .scada-top-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
   gap: 1.25rem;
 }
 
-@media (max-width: 900px) {
-  .scada-top-grid {
+.scada-top-grid-primary {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.scada-top-grid-secondary {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 1080px) {
+  .scada-top-grid-primary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .scada-top-grid-secondary {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .scada-top-grid-primary {
+    grid-template-columns: 1fr;
+  }
+
+  .scada-top-grid-secondary {
     grid-template-columns: 1fr;
   }
 }
@@ -392,10 +429,35 @@ body {
   border: 1px solid rgba(103, 232, 249, 0.4);
 }
 
+.badge-today {
+  background: rgba(6, 182, 212, 0.2);
+  color: #38bdf8;
+  border: 1px solid #0284c7;
+  font-weight: 800;
+}
+
+.badge-green,
+.badge-closed {
+  background: rgba(5, 150, 105, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(5, 150, 105, 0.5);
+}
+
+.badge-amber,
+.badge-partial {
+  background: rgba(217, 119, 6, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(217, 119, 6, 0.5);
+}
+
 .badge-slate {
   background: rgba(148, 163, 184, 0.2);
   color: #cbd5e1;
   border: 1px solid rgba(203, 213, 225, 0.3);
+}
+
+.text-cyan {
+  color: #0284c7 !important;
 }
 
 /* Valores Numéricos de Alto Destaque */
@@ -410,6 +472,20 @@ body {
 
 .scada-value-hero .unit {
   font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.scada-value-medium {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--scada-navy);
+  line-height: 1.2;
+}
+
+.scada-value-medium .unit {
+  font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -479,10 +555,25 @@ body {
   color: #475569;
 }
 
-.rssi-excellent { background: #dcfce7; color: #15803d; }
-.rssi-good { background: #e0f2fe; color: #0369a1; }
-.rssi-fair { background: #fef9c3; color: #a16207; }
-.rssi-weak { background: #fee2e2; color: #b91c1c; }
+.rssi-excellent {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.rssi-good {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.rssi-fair {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.rssi-weak {
+  background: #fee2e2;
+  color: #b91c1c;
+}
 
 /* ==========================================================================
    3. PAINEL CENTRAL DE OPERAÇÃO: TENDÊNCIA VAZÃO (24h)
@@ -744,7 +835,9 @@ body {
   font-size: 0.95rem;
 }
 
-.mini-val.text-blue { color: var(--scada-blue); }
+.mini-val.text-blue {
+  color: var(--scada-blue);
+}
 
 .mini-sub {
   font-size: 0.7rem;
@@ -864,8 +957,13 @@ body {
   color: var(--text-heading);
 }
 
-.text-blue { color: var(--scada-blue); }
-.text-cyan { color: var(--scada-cyan); }
+.text-blue {
+  color: var(--scada-blue);
+}
+
+.text-cyan {
+  color: var(--scada-cyan);
+}
 
 /* Gaveta 3: Estatísticas de Histórico */
 .scada-history-stats {
@@ -965,10 +1063,25 @@ body {
   font-weight: 700;
 }
 
-.badge-event-pulse { background: #e0f2fe; color: #0284c7; }
-.badge-event-accumulated { background: #fef3c7; color: #d97706; }
-.badge-event-reset { background: #fee2e2; color: #dc2626; }
-.badge-session-open { background: #dcfce7; color: #16a34a; }
+.badge-event-pulse {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+
+.badge-event-accumulated {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.badge-event-reset {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.badge-session-open {
+  background: #dcfce7;
+  color: #16a34a;
+}
 
 /* ==========================================================================
    5. TERMINAL DE CALIBRAÇÃO (WIZARD GUIADO + MODO MANUAL)
@@ -1455,3 +1568,144 @@ body.auth-loading .app-container {
   visibility: hidden;
 }
 
+/* ==========================================================================
+   6. NOVO GRÁFICO DIÁRIO: VOLUME 7 DIAS (DAILY-UX-01)
+   ========================================================================== */
+.chart-header-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.legend-box {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.legend-closed {
+  background: #0284c7;
+  border: 1px solid #38bdf8;
+}
+
+.legend-partial {
+  background: #f59e0b;
+  border: 1px solid #fbbf24;
+}
+
+.legend-today {
+  background: #06b6d4;
+  border: 1px solid #67e8f9;
+}
+
+.legend-none {
+  background: #334155;
+  border: 1px dashed #64748b;
+}
+
+.daily-chart-wrapper {
+  min-height: 230px;
+  position: relative;
+  background: #090d16;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.daily-bar-chart-container {
+  width: 100%;
+  height: 210px;
+  position: relative;
+}
+
+.daily-bar-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.daily-bar-item {
+  cursor: pointer;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.daily-bar-item:hover {
+  filter: brightness(1.25);
+}
+
+/* Tooltip Flutuante Interativo */
+.daily-chart-tooltip {
+  position: absolute;
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid #38bdf8;
+  color: #ffffff;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+  font-size: 0.75rem;
+  pointer-events: none;
+  z-index: 100;
+  transform: translate(-50%, -100%);
+  margin-top: -12px;
+  white-space: nowrap;
+  backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.daily-chart-tooltip.visible {
+  opacity: 1;
+}
+
+.daily-chart-tooltip .tt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  padding-bottom: 0.35rem;
+  margin-bottom: 0.2rem;
+}
+
+.daily-chart-tooltip .tt-date {
+  font-weight: 800;
+  color: #38bdf8;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+}
+
+.daily-chart-tooltip .tt-status {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+}
+
+.daily-chart-tooltip .tt-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.25rem;
+}
+
+.daily-chart-tooltip .tt-label {
+  color: #94a3b8;
+}
+
+.daily-chart-tooltip .tt-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  color: #ffffff;
+}

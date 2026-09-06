@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,9 +8,12 @@
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
+
 <body class="auth-loading">
   <div class="app-container">
     <!-- 1. CABEÇALHO SCADA INDUSTRIAL -->
@@ -17,11 +21,12 @@
       <div class="header-brand">
         <div class="scada-brand-icon">
           <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" fill="url(#scada-water-grad)" stroke="#0284c7" stroke-width="1.75" stroke-linejoin="round"/>
+            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" fill="url(#scada-water-grad)" stroke="#0284c7"
+              stroke-width="1.75" stroke-linejoin="round" />
             <defs>
               <linearGradient id="scada-water-grad" x1="12" y1="2.69" x2="12" y2="20.69" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#38bdf8"/>
-                <stop offset="1" stop-color="#0284c7"/>
+                <stop stop-color="#38bdf8" />
+                <stop offset="1" stop-color="#0284c7" />
               </linearGradient>
             </defs>
           </svg>
@@ -71,16 +76,16 @@
 
       <!-- ESTADO 2: DASHBOARD SCADA ATIVO -->
       <div id="dashboard-view" class="dashboard-wrapper hidden">
-        
-        <!-- GRID DE CARDS SUPERIORES (3 COLUNAS SCADA) -->
-        <div class="scada-top-grid">
-          
-          <!-- CARD 1: VOLUME MEDIDO DA CAIXA D'ÁGUA -->
+
+        <!-- GRID DE CARDS SUPERIORES: LINHA 1 (PRINCIPAIS KPIS SCADA) -->
+        <div class="scada-top-grid scada-top-grid-primary">
+
+          <!-- CARD 1: VOLUME ACUMULADO DA CAIXA D'ÁGUA -->
           <div class="scada-card card-volume">
             <div class="scada-card-header">
               <div class="card-header-left">
                 <span class="card-header-icon">🚰</span>
-                <span class="card-title">VOLUME MEDIDO</span>
+                <span class="card-title">VOLUME ACUMULADO</span>
               </div>
               <span class="scada-badge badge-blue" id="val-liters-badge">Calibração Pendente</span>
             </div>
@@ -90,7 +95,22 @@
             </div>
           </div>
 
-          <!-- CARD 2: VAZÃO RECENTE INSTANTÂNEA -->
+          <!-- CARD 2: VOLUME HOJE (DESTAQUE DIÁRIO) -->
+          <div class="scada-card card-today">
+            <div class="scada-card-header">
+              <div class="card-header-left">
+                <span class="card-header-icon">📅</span>
+                <span class="card-title">VOLUME HOJE</span>
+              </div>
+              <span class="scada-badge badge-today" id="val-today-badge">EM ANDAMENTO</span>
+            </div>
+            <div class="scada-card-body">
+              <div class="scada-value-hero text-cyan" id="val-today-m3">-- <span class="unit">m³</span></div>
+              <div class="scada-card-sub" id="val-today-sub">Aguardando dados de hoje • 00:00 → agora</div>
+            </div>
+          </div>
+
+          <!-- CARD 3: VAZÃO RECENTE INSTANTÂNEA -->
           <div class="scada-card card-flow">
             <div class="scada-card-header">
               <div class="card-header-left">
@@ -102,11 +122,12 @@
             <div class="scada-card-body">
               <div class="scada-value-hero" id="val-flow-recent">-- <span class="unit">L/min</span></div>
               <div class="flow-m3h-tag" id="val-flow-m3h">-- m³/h</div>
-              <div class="scada-card-sub" id="val-flow-recent-sub">Calculada pelo intervalo mais recente entre pulsos.</div>
+              <div class="scada-card-sub" id="val-flow-recent-sub">Calculada pelo intervalo mais recente entre pulsos.
+              </div>
             </div>
           </div>
 
-          <!-- CARD 3: RESUMO TÉCNICO & TELEMETRIA ESP32 -->
+          <!-- CARD 4: RESUMO TÉCNICO & TELEMETRIA ESP32 -->
           <div class="scada-card card-technical">
             <div class="scada-card-header">
               <div class="card-header-left">
@@ -140,6 +161,88 @@
 
         </div>
 
+        <!-- GRID DE CARDS SECUNDÁRIOS: LINHA 2 (RESUMO DIÁRIO & OPERACIONAL) -->
+        <div class="scada-top-grid scada-top-grid-secondary">
+
+          <!-- CARD A: ONTEM -->
+          <div class="scada-card card-yesterday">
+            <div class="scada-card-header">
+              <div class="card-header-left">
+                <span class="card-header-icon">⏮️</span>
+                <span class="card-title">ONTEM</span>
+              </div>
+              <span class="scada-badge badge-slate" id="val-yesterday-badge">--</span>
+            </div>
+            <div class="scada-card-body">
+              <div class="scada-value-medium font-mono" id="val-yesterday-m3">-- <span class="unit">m³</span></div>
+              <div class="scada-card-sub" id="val-yesterday-sub">Sem dados do dia anterior</div>
+            </div>
+          </div>
+
+          <!-- CARD B: MÉDIA 7 DIAS -->
+          <div class="scada-card card-avg7">
+            <div class="scada-card-header">
+              <div class="card-header-left">
+                <span class="card-header-icon">📈</span>
+                <span class="card-title">MÉDIA 7 DIAS</span>
+              </div>
+              <span class="scada-badge badge-slate" id="val-avg7-badge">Dias Fechados</span>
+            </div>
+            <div class="scada-card-body">
+              <div class="scada-value-medium font-mono" id="val-avg7-m3">-- <span class="unit">m³/dia</span></div>
+              <div class="scada-card-sub" id="val-avg7-sub">Aguardando dias completos</div>
+            </div>
+          </div>
+
+          <!-- CARD C: PASSAGEM ATUAL -->
+          <div class="scada-card card-passage-status">
+            <div class="scada-card-header">
+              <div class="card-header-left">
+                <span class="card-header-icon">💧</span>
+                <span class="card-title">PASSAGEM ATUAL</span>
+              </div>
+              <span class="scada-badge badge-slate" id="val-passage-badge">Sessão</span>
+            </div>
+            <div class="scada-card-body">
+              <div class="scada-value-medium" id="val-passage-status">SEM PASSAGEM</div>
+              <div class="scada-card-sub" id="val-passage-sub">Nenhum fluxo nos últimos 90s</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- NOVO PAINEL EXECUTIVO: VOLUME DIÁRIO — 7 DIAS -->
+        <section class="scada-card scada-chart-panel daily-chart-panel">
+          <div class="scada-chart-header">
+            <div class="chart-header-title-group">
+              <div class="chart-title-icon">📊</div>
+              <div>
+                <h3 class="chart-title">VOLUME DIÁRIO — 7 DIAS</h3>
+                <p class="chart-subtitle">Histórico consolidado em m³/dia (America/Sao_Paulo)</p>
+              </div>
+            </div>
+
+            <div class="chart-header-legend">
+              <span class="legend-item"><span class="legend-box legend-closed"></span> Fechado</span>
+              <span class="legend-item"><span class="legend-box legend-partial"></span> Parcial</span>
+              <span class="legend-item"><span class="legend-box legend-today"></span> Hoje</span>
+              <span class="legend-item"><span class="legend-box legend-none"></span> Sem Registro</span>
+            </div>
+          </div>
+
+          <!-- Container do Gráfico de Barras Diário -->
+          <div class="chart-wrapper daily-chart-wrapper" id="chart-daily-wrapper">
+            <div id="chart-daily-empty" class="chart-empty hidden">
+              <span class="empty-icon">📊</span>
+              <span class="empty-title">DADOS DIÁRIOS INDISPONÍVEIS</span>
+              <span class="empty-sub">Aguardando consolidação do histórico diário.</span>
+            </div>
+            <div class="daily-bar-chart-container" id="daily-bar-chart-container">
+              <!-- Renderizado dinamicamente via app.js -->
+            </div>
+          </div>
+        </section>
+
         <!-- PAINEL CENTRAL DE OPERAÇÃO: TENDÊNCIA VAZÃO (24h) -->
         <section class="scada-card scada-chart-panel">
           <div class="scada-chart-header">
@@ -150,7 +253,7 @@
                 <p class="chart-subtitle">Histórico de Vazão em L/min Calculado Inter-Pulsos</p>
               </div>
             </div>
-            
+
             <div class="chart-header-status-group">
               <div class="session-status-badge status-offline" id="session-status-badge">
                 <span class="status-dot"></span>
@@ -171,7 +274,8 @@
             <div id="chart-flow-empty" class="chart-empty">
               <span class="empty-icon">💧</span>
               <span class="empty-title">AGUARDANDO DADOS DE VAZÃO</span>
-              <span class="empty-sub">A vazão será calculada e desenhada após a calibração e a captura de pelo menos dois pulsos válidos.</span>
+              <span class="empty-sub">A vazão será calculada e desenhada após a calibração e a captura de pelo menos
+                dois pulsos válidos.</span>
             </div>
             <svg id="chart-flow-svg" class="chart-svg hidden" viewBox="0 0 500 180" preserveAspectRatio="none">
               <!-- Desenhado dinamicamente via app.js -->
@@ -189,7 +293,7 @@
 
         <!-- SEÇÕES DETALHADAS EM SANFONA SCADA (<details>) -->
         <div class="scada-accordion-group">
-          
+
           <!-- GAVETA 1: DETALHES DE MONITORAMENTO E CURVAS SECUNDÁRIAS -->
           <details class="scada-accordion">
             <summary class="scada-accordion-summary">
@@ -197,13 +301,14 @@
                 <span class="summary-icon">📊</span>
                 <div>
                   <span class="summary-title">Detalhes de Monitoramento e Diagnóstico</span>
-                  <span class="summary-desc">Vazão média, pico registrado, contador na RAM do ESP32 e curvas de evolução</span>
+                  <span class="summary-desc">Vazão média, pico registrado, contador na RAM do ESP32 e curvas de
+                    evolução</span>
                 </div>
               </div>
               <span class="summary-arrow">▼</span>
             </summary>
             <div class="scada-accordion-content">
-              
+
               <div class="scada-mini-kpi-grid">
                 <div class="scada-mini-card">
                   <span class="mini-label">VAZÃO MÉDIA</span>
@@ -237,7 +342,8 @@
                   <div class="subchart-header">
                     <div>
                       <h4 class="subchart-title">EVOLUÇÃO DO VOLUME</h4>
-                      <p class="subchart-subtitle" id="chart-volume-subtitle">Progressão acumulada do volume medido ao longo do tempo</p>
+                      <p class="subchart-subtitle" id="chart-volume-subtitle">Progressão acumulada do volume medido ao
+                        longo do tempo</p>
                     </div>
                     <span class="scada-badge badge-slate">Curva Acumulada</span>
                   </div>
@@ -246,7 +352,8 @@
                       <span class="empty-icon">📈</span>
                       <span>Aguardando dados de volume...</span>
                     </div>
-                    <svg id="chart-volume-svg" class="chart-svg hidden" viewBox="0 0 500 180" preserveAspectRatio="none"></svg>
+                    <svg id="chart-volume-svg" class="chart-svg hidden" viewBox="0 0 500 180"
+                      preserveAspectRatio="none"></svg>
                   </div>
                 </div>
 
@@ -264,7 +371,8 @@
                       <span class="empty-icon">📊</span>
                       <span>Aguardando eventos de pulso...</span>
                     </div>
-                    <svg id="chart-pulses-svg" class="chart-svg hidden" viewBox="0 0 500 180" preserveAspectRatio="none"></svg>
+                    <svg id="chart-pulses-svg" class="chart-svg hidden" viewBox="0 0 500 180"
+                      preserveAspectRatio="none"></svg>
                   </div>
                 </div>
               </div>
@@ -279,13 +387,14 @@
                 <span class="summary-icon">🌊</span>
                 <div>
                   <span class="summary-title">Histórico de Passagens de Água</span>
-                  <span class="summary-desc">Sessões contínuas de fluxo de água agrupadas por inatividade (gap > 90s)</span>
+                  <span class="summary-desc">Sessões contínuas de fluxo de água agrupadas por inatividade (gap >
+                    90s)</span>
                 </div>
               </div>
               <span class="summary-arrow">▼</span>
             </summary>
             <div class="scada-accordion-content">
-              
+
               <!-- Card da Sessão Mais Recente -->
               <div class="scada-session-hero" id="card-session-hero">
                 <div class="session-hero-header">
@@ -362,7 +471,7 @@
               <span class="summary-arrow">▼</span>
             </summary>
             <div class="scada-accordion-content">
-              
+
               <div class="scada-history-stats">
                 <div class="stat-box">
                   <span class="stat-label">REGISTROS DE PULSO</span>
@@ -411,13 +520,14 @@
                 <span class="summary-icon">⚙️</span>
                 <div>
                   <span class="summary-title">Calibração do Hidrômetro</span>
-                  <span class="summary-desc">Assistente de calibração semiautomática orientada ou ajuste manual de fator</span>
+                  <span class="summary-desc">Assistente de calibração semiautomática orientada ou ajuste manual de
+                    fator</span>
                 </div>
               </div>
               <span class="summary-arrow">▼</span>
             </summary>
             <div class="scada-accordion-content">
-              
+
               <div class="calib-panel">
                 <div class="calib-panel-header">
                   <div>
@@ -432,12 +542,13 @@
 
                 <!-- FLUXO SEMIAUTOMÁTICO DINÂMICO (OCULTO TEMPORARIAMENTE ATÉ IMPLEMENTAÇÃO DO BACKEND) -->
                 <div id="calib-semiauto-container" class="hidden">
-                  
+
                   <!-- ESTADO A: IDLE -->
                   <div id="calib-state-idle" class="calib-state-box">
                     <h5 class="calib-state-title">CALIBRAÇÃO SEMIAUTOMÁTICA ORIENTADA</h5>
                     <p class="calib-instructions">
-                      O sistema iniciará a contagem dos pulsos gerados durante o teste. Ao finalizar a passagem de água, informe o volume real medido na caixa d'água para calcular o fator exato (Litros/Pulso).
+                      O sistema iniciará a contagem dos pulsos gerados durante o teste. Ao finalizar a passagem de água,
+                      informe o volume real medido na caixa d'água para calcular o fator exato (Litros/Pulso).
                     </p>
                     <div class="calib-btn-row">
                       <button id="btn-start-calibration" class="scada-btn scada-btn-primary">INICIAR CALIBRAÇÃO</button>
@@ -472,7 +583,8 @@
                     <div class="calib-form-group">
                       <label for="input-known-volume" class="form-label">VOLUME REAL QUE PASSOU (LITROS)</label>
                       <div class="input-with-unit">
-                        <input type="number" id="input-known-volume" placeholder="Ex: 1000" step="any" min="0.001" class="scada-input">
+                        <input type="number" id="input-known-volume" placeholder="Ex: 1000" step="any" min="0.001"
+                          class="scada-input">
                         <span class="input-unit">L</span>
                       </div>
                     </div>
@@ -505,7 +617,8 @@
                     </div>
 
                     <div class="calib-btn-row">
-                      <button id="btn-confirm-calibration" class="scada-btn scada-btn-success">CONFIRMAR E SALVAR</button>
+                      <button id="btn-confirm-calibration" class="scada-btn scada-btn-success">CONFIRMAR E
+                        SALVAR</button>
                       <button id="btn-back-calibration" class="scada-btn scada-btn-secondary">VOLTAR</button>
                     </div>
                   </div>
@@ -523,14 +636,17 @@
                       <div class="calib-form-group">
                         <label for="input-liters-per-pulse" class="form-label">LITROS POR PULSO</label>
                         <div class="input-with-unit">
-                          <input type="number" id="input-liters-per-pulse" placeholder="Ex: 10" step="any" min="0.001" class="scada-input">
+                          <input type="number" id="input-liters-per-pulse" placeholder="Ex: 10" step="any" min="0.001"
+                            class="scada-input">
                           <span class="input-unit">L / pulso</span>
                         </div>
                       </div>
                       <button id="btn-save-calibration" class="scada-btn scada-btn-primary">SALVAR FATOR MANUAL</button>
                     </div>
-                    <div class="manual-calib-row margin-top-md" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--scada-border-light);">
-                      <button id="btn-factory-reset" class="scada-btn scada-btn-danger">ZERAR DADOS DO SISTEMA (HARD RESET)</button>
+                    <div class="manual-calib-row margin-top-md"
+                      style="margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--scada-border-light);">
+                      <button id="btn-factory-reset" class="scada-btn scada-btn-danger">ZERAR DADOS DO SISTEMA (HARD
+                        RESET)</button>
                     </div>
                   </div>
                 </details>
@@ -563,4 +679,5 @@
 
   <script src="app.js"></script>
 </body>
+
 </html>

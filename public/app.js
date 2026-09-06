@@ -19,7 +19,7 @@ async function handleUnauthorizedOnce() {
   clearAllIntervals();
 
   if (supabaseClient) {
-    try { await supabaseClient.auth.signOut(); } catch (e) {}
+    try { await supabaseClient.auth.signOut(); } catch (e) { }
   }
 
   alert('Sessão expirada. Entre novamente.');
@@ -98,7 +98,7 @@ async function bootstrapAdmin() {
 
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
-      if (supabaseClient) await supabaseClient.auth.signOut().catch(() => {});
+      if (supabaseClient) await supabaseClient.auth.signOut().catch(() => { });
       window.location.replace('/login.html');
       return false;
     }
@@ -111,7 +111,7 @@ async function bootstrapAdmin() {
       window.location.replace('/mapa.html');
       return false;
     } else {
-      if (supabaseClient) await supabaseClient.auth.signOut().catch(() => {});
+      if (supabaseClient) await supabaseClient.auth.signOut().catch(() => { });
       window.location.replace('/login.html');
       return false;
     }
@@ -130,7 +130,8 @@ async function startApp() {
       fetchLatestTelemetry(),
       fetchTelemetryHistory(),
       fetchFlowSessions(),
-      fetchFlowChart24h()
+      fetchFlowChart24h(),
+      fetchDailySummary()
     ]);
 
     if (!authFailureHandling) {
@@ -138,6 +139,7 @@ async function startApp() {
       registerInterval(fetchTelemetryHistory, 2000);
       registerInterval(fetchFlowSessions, 15000);
       registerInterval(fetchFlowChart24h, 60000);
+      registerInterval(fetchDailySummary, 60000);
       registerInterval(updateRelativeTimeDisplay, 1000);
     }
   }
@@ -152,7 +154,7 @@ if (btnLogout) {
     authFailureHandling = true;
     clearAllIntervals();
     if (supabaseClient) {
-      try { await supabaseClient.auth.signOut(); } catch (e) {}
+      try { await supabaseClient.auth.signOut(); } catch (e) { }
     }
     window.location.replace('/login.html');
   });
@@ -204,7 +206,29 @@ const chartPulsesSvg = document.getElementById('chart-pulses-svg');
 
 const valEspPulseCount = document.getElementById('val-esp-pulse-count');
 
+// DOM Elements para o Resumo Diário (DAILY-UX-01)
+const valTodayM3 = document.getElementById('val-today-m3');
+const valTodaySub = document.getElementById('val-today-sub');
+const valTodayBadge = document.getElementById('val-today-badge');
+
+const valYesterdayM3 = document.getElementById('val-yesterday-m3');
+const valYesterdaySub = document.getElementById('val-yesterday-sub');
+const valYesterdayBadge = document.getElementById('val-yesterday-badge');
+
+const valAvg7M3 = document.getElementById('val-avg7-m3');
+const valAvg7Sub = document.getElementById('val-avg7-sub');
+const valAvg7Badge = document.getElementById('val-avg7-badge');
+
+const valPassageStatus = document.getElementById('val-passage-status');
+const valPassageSub = document.getElementById('val-passage-sub');
+const valPassageBadge = document.getElementById('val-passage-badge');
+
+const chartDailyWrapper = document.getElementById('chart-daily-wrapper');
+const chartDailyEmpty = document.getElementById('chart-daily-empty');
+const dailyBarChartContainer = document.getElementById('daily-bar-chart-container');
+
 let systemTotalsCache = null;
+let dailySummaryCache = null;
 
 async function fetchSystemSummary() {
   try {
@@ -242,7 +266,7 @@ function updateUI(telemetry) {
   if (!telemetry || !telemetry.device_id) {
     waitingView.classList.remove('hidden');
     dashboardView.classList.add('hidden');
-    
+
     statusBadge.className = 'status-indicator status-offline';
     statusText.textContent = 'OFFLINE';
     return;
@@ -283,9 +307,10 @@ function updateUI(telemetry) {
 
   if (calib && calib.status === 'calibrated' && sysVolLiters !== null) {
     const calcLiters = Number(sysVolLiters);
-    valLitersTotal.innerHTML = `${calcLiters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} <span class="unit">L</span>`;
+    const calcM3 = calcLiters / 1000;
+    valLitersTotal.innerHTML = `${calcM3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="unit">m³</span>`;
     if (valLitersSub) {
-      valLitersSub.textContent = `Volume acumulado no sistema (persiste após reinício) • ${sysPulseTotal.toLocaleString('pt-BR')} pulsos acumulados`;
+      valLitersSub.textContent = `${calcLiters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L acumulados desde o início • ${sysPulseTotal.toLocaleString('pt-BR')} pulsos acumulados`;
     }
     if (valLitersBadge) {
       valLitersBadge.textContent = `Fator: 1p = ${calib.liters_per_pulse}L`;
@@ -758,7 +783,7 @@ function renderFlowChart(chartBuckets) {
       const pt = points[tIdx];
       const anchor = i === 0 ? 'start' : (i === timeTickIndices.length - 1 ? 'end' : 'middle');
       const offsetTextX = pt.x;
-      
+
       xGridAndLabels += `
         <line x1="${pt.x.toFixed(1)}" y1="${gridY3}" x2="${pt.x.toFixed(1)}" y2="${bottomY}" stroke="rgba(255,255,255,0.04)" stroke-dasharray="2,4"/>
         <text x="${offsetTextX.toFixed(1)}" y="${height - 8}" fill="#64748b" font-size="9" text-anchor="${anchor}" font-family="JetBrains Mono">${pt.timeLabel || '--'}</text>
@@ -867,7 +892,7 @@ function updateHistoryUI(historyList) {
         }
         pulseDeltaStr = `+${delta}`;
         pulseTotalStr = (item.pulse_total !== undefined && item.pulse_total !== null) ? item.pulse_total.toLocaleString('pt-BR') : '--';
-        
+
         if (item.calculated_liters_delta !== null && item.calculated_liters_delta !== undefined) {
           const liters = Number(item.calculated_liters_delta);
           litersEstimatedStr = `${liters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L`;
@@ -977,6 +1002,14 @@ function updateSessionsUI(sessionsList, summaryData) {
         ? `${latestSession.average_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L/min`
         : `--`;
     }
+
+    // Atualiza Card de Apoio PASSAGEM ATUAL
+    if (valPassageStatus) valPassageStatus.innerHTML = `<span style="color:#059669;">PASSAGEM ATIVA</span>`;
+    if (valPassageSub) valPassageSub.textContent = `Início: ${new Date(latestSession.started_at).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' })} • ${formatDuration(latestSession.duration_seconds)}`;
+    if (valPassageBadge) {
+      valPassageBadge.textContent = 'EM FLUXO';
+      valPassageBadge.className = 'scada-badge badge-closed';
+    }
   } else {
     if (sessionStatusBadge) sessionStatusBadge.className = 'session-status-badge status-offline';
     if (sessionStatusText) sessionStatusText.textContent = 'SEM PASSAGEM';
@@ -1003,6 +1036,14 @@ function updateSessionsUI(sessionsList, summaryData) {
           ? `${latestSession.average_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L/min`
           : `--`;
       }
+
+      // Atualiza Card de Apoio PASSAGEM ATUAL
+      if (valPassageStatus) valPassageStatus.textContent = 'SEM PASSAGEM';
+      if (valPassageSub) valPassageSub.textContent = `Última: ${endD.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' })} • ${latestSession.pulse_count} pulsos`;
+      if (valPassageBadge) {
+        valPassageBadge.textContent = 'Repouso';
+        valPassageBadge.className = 'scada-badge badge-slate';
+      }
     } else {
       if (valSessionSub) valSessionSub.textContent = 'Nenhuma passagem de água registrada até o momento.';
       if (valSessionBadge) valSessionBadge.textContent = 'Sem Dados';
@@ -1012,6 +1053,13 @@ function updateSessionsUI(sessionsList, summaryData) {
       if (sessValPulses) sessValPulses.textContent = '0';
       if (sessValVolume) sessValVolume.textContent = '--';
       if (sessValAvgFlow) sessValAvgFlow.textContent = '--';
+
+      if (valPassageStatus) valPassageStatus.textContent = 'SEM PASSAGEM';
+      if (valPassageSub) valPassageSub.textContent = 'Nenhum fluxo registrado';
+      if (valPassageBadge) {
+        valPassageBadge.textContent = 'Repouso';
+        valPassageBadge.className = 'scada-badge badge-slate';
+      }
     }
   }
 
@@ -1076,6 +1124,351 @@ async function fetchFlowSessions() {
   } catch (err) {
     console.error('Erro ao buscar sessões de fluxo:', err);
   }
+}
+
+// ==========================================================================
+// RESUMO DIÁRIO & GRÁFICO 7 DIAS (DAILY-UX-01)
+// ==========================================================================
+
+function showDailyUnavailable() {
+  if (valTodayM3) valTodayM3.innerHTML = `-- <span class="unit">m³</span>`;
+  if (valTodaySub) valTodaySub.textContent = 'Dados diários indisponíveis';
+  if (valYesterdayM3) valYesterdayM3.innerHTML = `-- <span class="unit">m³</span>`;
+  if (valYesterdaySub) valYesterdaySub.textContent = 'Dados diários indisponíveis';
+  if (valAvg7M3) valAvg7M3.innerHTML = `-- <span class="unit">m³/dia</span>`;
+  if (valAvg7Sub) valAvg7Sub.textContent = 'Dados diários indisponíveis';
+  if (chartDailyEmpty) chartDailyEmpty.classList.remove('hidden');
+  if (dailyBarChartContainer) dailyBarChartContainer.innerHTML = '';
+}
+
+async function fetchDailySummary() {
+  try {
+    const response = await adminFetch('/api/telemetry/daily-summary?days=7', { cache: 'no-store' });
+    if (!response.ok) {
+      showDailyUnavailable();
+      return;
+    }
+    const result = await response.json();
+    if (result.ok && Array.isArray(result.items)) {
+      dailySummaryCache = result.items;
+      updateDailyUI(result.items);
+    } else {
+      showDailyUnavailable();
+    }
+  } catch (err) {
+    if (err.message !== 'Sessão expirada.') {
+      console.error('Erro ao buscar resumo diário:', err);
+    }
+    showDailyUnavailable();
+  }
+}
+
+function updateDailyUI(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    showDailyUnavailable();
+    return;
+  }
+
+  if (chartDailyEmpty) chartDailyEmpty.classList.add('hidden');
+
+  // 1. Identificar o item de "Hoje" (último item da lista cronológica ou status === 'EM_ANDAMENTO')
+  const todayItem = items[items.length - 1];
+
+  if (todayItem && valTodayM3) {
+    if (todayItem.volume_m3 !== null && todayItem.volume_m3 !== undefined) {
+      valTodayM3.innerHTML = `${Number(todayItem.volume_m3).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="unit">m³</span>`;
+      const litersFormatted = todayItem.volume_liters !== null ? Number(todayItem.volume_liters).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) : '--';
+      if (valTodaySub) {
+        valTodaySub.textContent = `${litersFormatted} L • 00:00 → agora`;
+      }
+    } else if (todayItem.volume_liters !== null && todayItem.volume_liters !== undefined) {
+      const m3 = Number(todayItem.volume_liters) / 1000;
+      valTodayM3.innerHTML = `${m3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="unit">m³</span>`;
+      if (valTodaySub) {
+        valTodaySub.textContent = `${Number(todayItem.volume_liters).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L • 00:00 → agora`;
+      }
+    } else {
+      valTodayM3.innerHTML = `0,00 <span class="unit">m³</span>`;
+      if (valTodaySub) valTodaySub.textContent = `0 L • 00:00 → agora`;
+    }
+    if (valTodayBadge) {
+      valTodayBadge.textContent = 'EM ANDAMENTO';
+      valTodayBadge.className = 'scada-badge badge-today';
+    }
+  }
+
+  // 2. Identificar o item de "Ontem" (penúltimo item da lista de 7 dias)
+  const yesterdayItem = items.length >= 2 ? items[items.length - 2] : null;
+  if (yesterdayItem && valYesterdayM3) {
+    const yStatus = yesterdayItem.status;
+    const yDate = yesterdayItem.date ? yesterdayItem.date.split('-').reverse().join('/') : 'Ontem';
+
+    if (yStatus === 'FECHADO') {
+      const m3 = yesterdayItem.volume_m3 !== null ? Number(yesterdayItem.volume_m3) : (yesterdayItem.volume_liters ? Number(yesterdayItem.volume_liters) / 1000 : 0);
+      const liters = yesterdayItem.volume_liters !== null ? Number(yesterdayItem.volume_liters) : 0;
+      valYesterdayM3.innerHTML = `${m3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="unit">m³</span>`;
+      if (valYesterdaySub) {
+        valYesterdaySub.textContent = `${liters.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L • Dia Completo (${yDate})`;
+      }
+      if (valYesterdayBadge) {
+        valYesterdayBadge.textContent = 'FECHADO';
+        valYesterdayBadge.className = 'scada-badge badge-closed';
+      }
+    } else if (yStatus === 'PARCIAL') {
+      const m3 = yesterdayItem.volume_m3 !== null ? Number(yesterdayItem.volume_m3) : (yesterdayItem.volume_liters ? Number(yesterdayItem.volume_liters) / 1000 : 0);
+      const liters = yesterdayItem.volume_liters !== null ? Number(yesterdayItem.volume_liters) : 0;
+      valYesterdayM3.innerHTML = `${m3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="unit">m³</span>`;
+      if (valYesterdaySub) {
+        valYesterdaySub.textContent = `${liters.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L • Janela incompleta de medição`;
+      }
+      if (valYesterdayBadge) {
+        valYesterdayBadge.textContent = 'PARCIAL';
+        valYesterdayBadge.className = 'scada-badge badge-partial';
+      }
+    } else {
+      // SEM_REGISTRO ou outro
+      valYesterdayM3.innerHTML = `-- <span class="unit">m³</span>`;
+      if (valYesterdaySub) {
+        valYesterdaySub.textContent = `Sem registros de medição (${yDate})`;
+      }
+      if (valYesterdayBadge) {
+        valYesterdayBadge.textContent = 'SEM REGISTRO';
+        valYesterdayBadge.className = 'scada-badge badge-slate';
+      }
+    }
+  }
+
+  // 3. Média 7 Dias (SOMENTE dias FECHADOS)
+  if (valAvg7M3) {
+    const closedDays = items.filter(d => d.status === 'FECHADO');
+    if (closedDays.length === 0) {
+      valAvg7M3.innerHTML = `-- <span class="unit">m³/dia</span>`;
+      if (valAvg7Sub) valAvg7Sub.textContent = 'Aguardando dias completos';
+      if (valAvg7Badge) {
+        valAvg7Badge.textContent = '0 DIAS FECHADOS';
+        valAvg7Badge.className = 'scada-badge badge-slate';
+      }
+    } else {
+      const sumM3 = closedDays.reduce((acc, d) => {
+        const v = d.volume_m3 !== null ? Number(d.volume_m3) : (d.volume_liters ? Number(d.volume_liters) / 1000 : 0);
+        return acc + v;
+      }, 0);
+      const avgM3 = sumM3 / closedDays.length;
+      valAvg7M3.innerHTML = `${avgM3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="unit">m³/dia</span>`;
+      if (valAvg7Sub) {
+        valAvg7Sub.textContent = `${closedDays.length} ${closedDays.length === 1 ? 'dia completo considerado' : 'dias completos considerados'}`;
+      }
+      if (valAvg7Badge) {
+        valAvg7Badge.textContent = `${closedDays.length} DIAS FECHADOS`;
+        valAvg7Badge.className = 'scada-badge badge-closed';
+      }
+    }
+  }
+
+  // 4. Renderizar Gráfico de Barras Diário
+  renderDailyBarChart(items);
+}
+
+function renderDailyBarChart(items) {
+  if (!dailyBarChartContainer) return;
+
+  const width = 700;
+  const height = 210;
+  const padLeft = 65;
+  const padRight = 20;
+  const padTop = 32;
+  const padBottom = 40;
+
+  const chartW = width - padLeft - padRight;
+  const chartH = height - padTop - padBottom;
+  const bottomY = height - padBottom;
+
+  // Max volume in m3
+  const maxDataM3 = Math.max(...items.map(d => {
+    if (d.volume_m3 !== null && d.volume_m3 !== undefined) return Number(d.volume_m3);
+    if (d.volume_liters !== null && d.volume_liters !== undefined) return Number(d.volume_liters) / 1000;
+    return 0;
+  }), 10);
+
+  const maxScale = Math.ceil(maxDataM3 * 1.15);
+  const midScale = maxScale / 2;
+
+  const numSlots = items.length;
+  const slotW = chartW / numSlots;
+  const barW = Math.min(48, slotW * 0.65);
+
+  let gridSvg = `
+    <line x1="${padLeft}" y1="${padTop}" x2="${width - padRight}" y2="${padTop}" stroke="rgba(255,255,255,0.07)" stroke-dasharray="3,3"/>
+    <line x1="${padLeft}" y1="${padTop + chartH * 0.5}" x2="${width - padRight}" y2="${padTop + chartH * 0.5}" stroke="rgba(255,255,255,0.07)" stroke-dasharray="3,3"/>
+    <line x1="${padLeft}" y1="${bottomY}" x2="${width - padRight}" y2="${bottomY}" stroke="rgba(255,255,255,0.2)"/>
+    
+    <text x="${padLeft - 8}" y="${padTop + 4}" fill="#64748b" font-size="10" text-anchor="end" font-family="JetBrains Mono">${maxScale.toFixed(0)} m³</text>
+    <text x="${padLeft - 8}" y="${padTop + chartH * 0.5 + 4}" fill="#64748b" font-size="10" text-anchor="end" font-family="JetBrains Mono">${midScale.toFixed(0)} m³</text>
+    <text x="${padLeft - 8}" y="${bottomY + 4}" fill="#64748b" font-size="10" text-anchor="end" font-family="JetBrains Mono">0 m³</text>
+  `;
+
+  let barsSvg = '';
+  let tooltipDataMap = [];
+
+  items.forEach((d, idx) => {
+    const slotCenterX = padLeft + (idx + 0.5) * slotW;
+    const barX = slotCenterX - barW / 2;
+
+    const [yYear, yMonth, yDay] = (d.date || '').split('-');
+    const dateLabel = yDay && yMonth ? `${yDay}/${yMonth}` : d.date;
+    const isToday = d.status === 'EM_ANDAMENTO';
+
+    const volM3 = d.volume_m3 !== null && d.volume_m3 !== undefined ? Number(d.volume_m3) : (d.volume_liters !== null && d.volume_liters !== undefined ? Number(d.volume_liters) / 1000 : null);
+    const volLiters = d.volume_liters !== null && d.volume_liters !== undefined ? Number(d.volume_liters) : null;
+
+    let barHeight = 0;
+    if (volM3 !== null && maxScale > 0) {
+      barHeight = (volM3 / maxScale) * chartH;
+    }
+    const barY = bottomY - barHeight;
+
+    let fillAttr = '';
+    let strokeAttr = '';
+    let statusText = d.status;
+    let badgeClass = 'badge-slate';
+
+    if (d.status === 'FECHADO') {
+      fillAttr = 'url(#dailyClosedGrad)';
+      strokeAttr = '#38bdf8';
+      statusText = 'FECHADO';
+      badgeClass = 'badge-closed';
+    } else if (d.status === 'PARCIAL') {
+      fillAttr = 'url(#dailyPartialGrad)';
+      strokeAttr = '#fbbf24';
+      statusText = 'PARCIAL';
+      badgeClass = 'badge-partial';
+    } else if (d.status === 'EM_ANDAMENTO') {
+      fillAttr = 'url(#dailyTodayGrad)';
+      strokeAttr = '#67e8f9';
+      statusText = 'HOJE (EM ANDAMENTO)';
+      badgeClass = 'badge-today';
+    } else {
+      fillAttr = 'rgba(51, 65, 85, 0.3)';
+      strokeAttr = '#475569';
+      statusText = 'SEM REGISTRO';
+      badgeClass = 'badge-slate';
+    }
+
+    tooltipDataMap.push({
+      date: d.date ? `${yDay}/${yMonth}/${yYear}` : '--',
+      status: statusText,
+      badgeClass: badgeClass,
+      volume_m3: volM3 !== null ? `${volM3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³` : '--',
+      volume_liters: volLiters !== null ? `${volLiters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L` : '--',
+      pulses: d.pulse_count !== null && d.pulse_count !== undefined ? Number(d.pulse_count).toLocaleString('pt-BR') : '--',
+      avg_flow: d.average_flow_lpm !== null && d.average_flow_lpm !== undefined ? `${Number(d.average_flow_lpm).toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L/min` : '--',
+      max_flow: d.max_flow_lpm !== null && d.max_flow_lpm !== undefined ? `${Number(d.max_flow_lpm).toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L/min` : '--',
+      duration: d.flow_duration_seconds ? formatDuration(d.flow_duration_seconds) : '--'
+    });
+
+    if (d.status === 'SEM_REGISTRO' || volM3 === null) {
+      barsSvg += `
+        <g class="daily-bar-item" data-idx="${idx}">
+          <line x1="${slotCenterX - 10}" y1="${bottomY - 1}" x2="${slotCenterX + 10}" y2="${bottomY - 1}" stroke="#475569" stroke-width="2" stroke-dasharray="3,3"/>
+          <text x="${slotCenterX}" y="${bottomY - 10}" fill="#64748b" font-size="9" text-anchor="middle" font-family="JetBrains Mono">--</text>
+          <text x="${slotCenterX}" y="${height - 12}" fill="#64748b" font-size="10" text-anchor="middle" font-family="JetBrains Mono">${dateLabel}</text>
+          <rect x="${barX}" y="${padTop}" width="${barW}" height="${chartH}" fill="transparent"/>
+        </g>
+      `;
+    } else {
+      const valLabel = volM3 > 0 ? `${volM3.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}` : '0';
+      const labelColor = isToday ? '#67e8f9' : (d.status === 'PARCIAL' ? '#fbbf24' : '#38bdf8');
+      const dateColor = isToday ? '#38bdf8' : '#94a3b8';
+      const dateWeight = isToday ? 'bold' : 'normal';
+
+      barsSvg += `
+        <g class="daily-bar-item" data-idx="${idx}">
+          <rect x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(barHeight, 2).toFixed(1)}" rx="3" ry="3" fill="${fillAttr}" stroke="${strokeAttr}" stroke-width="1"/>
+          <text x="${slotCenterX.toFixed(1)}" y="${(barY - 6).toFixed(1)}" fill="${labelColor}" font-size="10" font-weight="700" text-anchor="middle" font-family="JetBrains Mono">${valLabel}</text>
+          ${isToday ? `<text x="${slotCenterX.toFixed(1)}" y="${(barY - 18).toFixed(1)}" fill="#38bdf8" font-size="8" font-weight="800" text-anchor="middle" font-family="JetBrains Mono">HOJE</text>` : ''}
+          <text x="${slotCenterX.toFixed(1)}" y="${height - 12}" fill="${dateColor}" font-weight="${dateWeight}" font-size="10" text-anchor="middle" font-family="JetBrains Mono">${dateLabel}</text>
+          <rect x="${barX.toFixed(1)}" y="${padTop}" width="${barW.toFixed(1)}" height="${chartH}" fill="transparent"/>
+        </g>
+      `;
+    }
+  });
+
+  const fullSvg = `
+    <svg class="daily-bar-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="dailyClosedGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#0284c7" stop-opacity="0.9"/>
+          <stop offset="100%" stop-color="#0369a1" stop-opacity="0.4"/>
+        </linearGradient>
+        <linearGradient id="dailyPartialGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.9"/>
+          <stop offset="100%" stop-color="#d97706" stop-opacity="0.35"/>
+        </linearGradient>
+        <linearGradient id="dailyTodayGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.95"/>
+          <stop offset="100%" stop-color="#0284c7" stop-opacity="0.5"/>
+        </linearGradient>
+      </defs>
+      ${gridSvg}
+      ${barsSvg}
+    </svg>
+    <div id="daily-chart-tooltip" class="daily-chart-tooltip"></div>
+  `;
+
+  dailyBarChartContainer.innerHTML = fullSvg;
+
+  // Tooltip interaction events
+  const tooltipEl = document.getElementById('daily-chart-tooltip');
+  const barElements = dailyBarChartContainer.querySelectorAll('.daily-bar-item');
+
+  barElements.forEach(el => {
+    const idx = parseInt(el.getAttribute('data-idx'), 10);
+    const data = tooltipDataMap[idx];
+    if (!data || !tooltipEl) return;
+
+    function showTooltip(e) {
+      const containerRect = dailyBarChartContainer.getBoundingClientRect();
+      const clientX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
+      const clientY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
+
+      const x = clientX - containerRect.left;
+      const y = clientY - containerRect.top;
+
+      let html = `
+        <div class="tt-header">
+          <span class="tt-date">${data.date}</span>
+          <span class="tt-status scada-badge ${data.badgeClass}">${data.status}</span>
+        </div>
+        <div class="tt-row"><span class="tt-label">Volume:</span><span class="tt-val" style="color:#38bdf8;">${data.volume_m3} (${data.volume_liters})</span></div>
+        <div class="tt-row"><span class="tt-label">Pulsos:</span><span class="tt-val">${data.pulses}</span></div>
+      `;
+
+      if (data.avg_flow !== '--') {
+        html += `<div class="tt-row"><span class="tt-label">Vazão Média:</span><span class="tt-val">${data.avg_flow}</span></div>`;
+      }
+      if (data.max_flow !== '--') {
+        html += `<div class="tt-row"><span class="tt-label">Pico:</span><span class="tt-val">${data.max_flow}</span></div>`;
+      }
+      if (data.duration !== '--') {
+        html += `<div class="tt-row"><span class="tt-label">Tempo de Fluxo:</span><span class="tt-val">${data.duration}</span></div>`;
+      }
+
+      tooltipEl.innerHTML = html;
+      tooltipEl.style.left = `${Math.max(120, Math.min(containerRect.width - 120, x))}px`;
+      tooltipEl.style.top = `${Math.max(50, y)}px`;
+      tooltipEl.classList.add('visible');
+    }
+
+    function hideTooltip() {
+      tooltipEl.classList.remove('visible');
+    }
+
+    el.addEventListener('mouseenter', showTooltip);
+    el.addEventListener('mousemove', showTooltip);
+    el.addEventListener('mouseleave', hideTooltip);
+    el.addEventListener('touchstart', showTooltip, { passive: true });
+    el.addEventListener('touchend', hideTooltip);
+  });
 }
 
 // CALIB-02 Semiautomatic Calibration DOM Elements
