@@ -91,18 +91,6 @@ export default async function handler(req, res) {
           pulse_total: pulse_total,
           received_at: nowIso
         });
-
-        if (pulse_total > 0) {
-          eventsToInsert.push({
-            device_id: cleanDeviceId,
-            type: 'pulse',
-            pulse_delta: pulse_total,
-            pulse_total: pulse_total,
-            liters_total_estimated: cleanLitersEstimated,
-            rssi: cleanRssi,
-            received_at: nowIso
-          });
-        }
       } else {
         // Heartbeat periódico (pulse_total == prevPulseTotal)
         eventsToInsert.push({
