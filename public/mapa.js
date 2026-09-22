@@ -8,10 +8,17 @@
 const POINTS_CONFIG = [
   {
     device_id: 'HIDRO-001',
-    name: 'RESERVATÓRIO CENTRAL',
+    name: 'Caixa da Santa',
     description: 'Ponto de Medição Hidrômetro DN50',
     latitude: -22.778683,
     longitude: -50.220552
+  },
+  {
+    device_id: 'HIDRO-002',
+    name: 'Caixa do Guri',
+    description: 'Ponto de Medição Caixa do Guri',
+    latitude: -22.793771036748467,
+    longitude: -50.21987848982002
   }
 ];
 
@@ -20,11 +27,32 @@ let supabaseClient = null;
 let authFailureHandling = false;
 let activeIntervals = [];
 let map = null;
-let marker = null;
+const markers = {};
+let selectedPointId = 'HIDRO-001';
 let currentFilter = 'all';
 let searchQuery = '';
 
 let refreshSessionPromise = null;
+
+// Cache isolado por device_id
+const pointsData = {
+  'HIDRO-001': {
+    telemetry: null,
+    systemSummary: null,
+    flowSummary: null,
+    sessions: null,
+    dailySummary: null,
+    flowChart24h: []
+  },
+  'HIDRO-002': {
+    telemetry: null,
+    systemSummary: null,
+    flowSummary: null,
+    sessions: null,
+    dailySummary: null,
+    flowChart24h: []
+  }
+};
 
 function registerInterval(fn, ms) {
   const id = setInterval(fn, ms);
@@ -134,12 +162,6 @@ async function handleUnauthorizedOnce() {
   window.location.replace('/login.html?expired=1');
 }
 
-let telemetryCache = null;
-let systemSummaryCache = null;
-let flowSummaryCache = null;
-let sessionsCache = null;
-let dailySummaryCache = null;
-
 // Elementos do DOM - Cabeçalho e Ações
 const commStatusBadge = document.getElementById('comm-status-badge');
 const btnRefresh = document.getElementById('btn-refresh');
@@ -148,6 +170,7 @@ const linkDashboard = document.getElementById('link-dashboard');
 
 // Elementos do DOM - Top Metrics Executivas (Max 5 cards)
 const valMonitoredPoints = document.getElementById('val-monitored-points');
+const subMonitoredPoints = document.getElementById('sub-monitored-points');
 const valOnlinePoints = document.getElementById('val-online-points');
 const valTotalVolumeM3Main = document.getElementById('val-total-volume-m3-main');
 const valTotalVolumeLitersSub = document.getElementById('val-total-volume-liters-sub');
@@ -157,7 +180,7 @@ const valCurrentFlowM3hSub = document.getElementById('val-current-flow-m3h-sub')
 const valSessionStatusTop = document.getElementById('val-session-status-top');
 const valSessionDetailTop = document.getElementById('val-session-detail-top');
 
-// Elementos do DOM - Card Lateral HIDRO-001
+// Elementos do DOM - Card Lateral HIDRO-001 (Caixa da Santa)
 const cardHidro001 = document.getElementById('card-hidro-001');
 const hidroStatusPill = document.getElementById('hidro-status-pill');
 const hidroFlowLabel = document.getElementById('hidro-flow-label');
@@ -176,6 +199,27 @@ const hidroRssi = document.getElementById('hidro-rssi');
 const hidroCalibFactor = document.getElementById('hidro-calib-factor');
 const hidroPulsesTotal = document.getElementById('hidro-pulses-total');
 const hidroGeoStatus = document.getElementById('hidro-geo-status');
+
+// Elementos do DOM - Card Lateral HIDRO-002 (Caixa do Guri)
+const cardHidro002 = document.getElementById('card-hidro-002');
+const hidro002StatusPill = document.getElementById('hidro002-status-pill');
+const hidro002FlowLabel = document.getElementById('hidro002-flow-label');
+const hidro002FlowRecent = document.getElementById('hidro002-flow-recent');
+const hidro002FlowM3h = document.getElementById('hidro002-flow-m3h');
+const hidro002VolumeM3 = document.getElementById('hidro002-volume-m3');
+const hidro002VolumeLiters = document.getElementById('hidro002-volume-liters');
+const hidro002FlowAvgLabel = document.getElementById('hidro002-flow-avg-label');
+const hidro002FlowAvg = document.getElementById('hidro002-flow-avg');
+const hidro002FlowMax = document.getElementById('hidro002-flow-max');
+const hidro002SessionStatus = document.getElementById('hidro002-session-status');
+const hidro002SessionDetail = document.getElementById('hidro002-session-detail');
+const hidro002LastReceivedHuman = document.getElementById('hidro002-last-received-human');
+const hidro002LastReceivedTime = document.getElementById('hidro002-last-received-time');
+const hidro002Rssi = document.getElementById('hidro002-rssi');
+const hidro002CalibFactor = document.getElementById('hidro002-calib-factor');
+const hidro002PulsesTotal = document.getElementById('hidro002-pulses-total');
+const hidro002GeoStatus = document.getElementById('hidro002-geo-status');
+
 const geoNotice = document.getElementById('geo-notice');
 
 // Elementos do DOM - Gráfico 24h Executivo
@@ -187,6 +231,7 @@ const mapSessionStatusText = document.getElementById('map-session-status-text');
 const mapValLastPulseRelative = document.getElementById('map-val-last-pulse-relative');
 
 // Filtros e Busca
+const badgePointsCount = document.getElementById('badge-points-count');
 const inputSearch = document.getElementById('input-search');
 const filterTabs = document.querySelectorAll('.filter-tab');
 const countAll = document.getElementById('count-all');
@@ -243,7 +288,6 @@ async function apiFetch(url, options = {}, isRetry = false) {
 
   if (response.status === 401) {
     if (!isRetry) {
-      // 1. Verificar se a sessão atual já foi renovada por outra requisição concorrente (stale 401)
       let currentToken = null;
       try {
         const { data: { session } } = await supabaseClient.auth.getSession();
@@ -257,7 +301,6 @@ async function apiFetch(url, options = {}, isRetry = false) {
         return apiFetch(url, options, true);
       }
 
-      // 2. Token ainda é o mesmo ou ausente: acionar refreshSession single-flight
       const refreshRes = await tryRefreshSession();
       if (refreshRes.status === 'ok') {
         return apiFetch(url, options, true);
@@ -306,10 +349,18 @@ function formatHumanRelativeTime(dateIso) {
   return `há ${diffDays} dia${diffDays !== 1 ? 's' : ''}`;
 }
 
-// 5. Normalização Centralizada de Dados (Snapshot Executivo Único)
-// Executive UI consumes normalized backend metrics.
-// Do not recalculate hydraulic metrics here.
-function buildExecutiveSnapshot() {
+// 5. Normalização Centralizada de Dados (Snapshot Executivo Isolado por Ponto)
+function buildExecutiveSnapshot(deviceId) {
+  const targetId = deviceId || selectedPointId || 'HIDRO-001';
+  const point = POINTS_CONFIG.find(p => p.device_id === targetId) || POINTS_CONFIG[0];
+  const devData = pointsData[targetId] || {};
+
+  const telemetryCache = devData.telemetry;
+  const systemSummaryCache = devData.systemSummary;
+  const flowSummaryCache = devData.flowSummary;
+  const sessionsCache = devData.sessions;
+  const dailySummaryCache = devData.dailySummary;
+
   const now = Date.now();
   const recAt = telemetryCache?.received_at ? new Date(telemetryCache.received_at).getTime() : null;
   const isOnline = recAt !== null && (now - recAt <= 20000);
@@ -443,13 +494,21 @@ function buildExecutiveSnapshot() {
   }
 
   const wifiRssi = telemetryCache?.rssi !== null && telemetryCache?.rssi !== undefined ? `${telemetryCache.rssi} dBm` : '-- dBm';
-  const calibFactor = systemSummaryCache?.liters_per_pulse || telemetryCache?.calibration?.liters_per_pulse || 101.63;
+  
+  let calibFactor = 'Pendente';
+  if (systemSummaryCache?.calibration_status === 'calibrated' && typeof systemSummaryCache?.liters_per_pulse === 'number') {
+    calibFactor = `${systemSummaryCache.liters_per_pulse} L/p`;
+  } else if (telemetryCache?.calibration?.status === 'calibrated' && typeof telemetryCache?.calibration?.liters_per_pulse === 'number') {
+    calibFactor = `${telemetryCache.calibration.liters_per_pulse} L/p`;
+  }
+
   const pulsesTotal = systemSummaryCache?.system_pulse_total !== undefined
     ? systemSummaryCache.system_pulse_total.toLocaleString('pt-BR')
     : (telemetryCache?.pulse_total ? telemetryCache.pulse_total.toLocaleString('pt-BR') : '--');
 
   return {
-    deviceId: 'HIDRO-001',
+    deviceId: point.device_id,
+    pointName: point.name,
     isOnline,
     passageState,
     passageBadgeClass,
@@ -478,8 +537,9 @@ function buildExecutiveSnapshot() {
 }
 
 // 6. Formatação do Popup Executivo com Dados Reais
-function generatePopupContent(snapshot) {
-  const snap = snapshot || buildExecutiveSnapshot();
+function generatePopupContent(snapshot, pointConfig) {
+  const pConfig = pointConfig || POINTS_CONFIG.find(p => p.device_id === snapshot.deviceId) || POINTS_CONFIG[0];
+  const snap = snapshot || buildExecutiveSnapshot(pConfig.device_id);
   const statusBadge = snap.isOnline
     ? '<span class="popup-badge online">ONLINE</span>'
     : '<span class="popup-badge offline">OFFLINE</span>';
@@ -490,8 +550,8 @@ function generatePopupContent(snapshot) {
     <div class="popup-executive-card">
       <div class="popup-header">
         <div>
-          <div class="popup-title">RESERVATÓRIO CENTRAL</div>
-          <span class="popup-tech-code">HIDRO-001</span>
+          <div class="popup-title">${pConfig.name}</div>
+          <span class="popup-tech-code">${pConfig.device_id}</span>
         </div>
         <div>${statusBadge}</div>
       </div>
@@ -532,7 +592,7 @@ function generatePopupContent(snapshot) {
       <div class="popup-tech-footer">
         <div style="display:flex; justify-content:space-between;">
           <span>Sinal: <strong>${snap.wifiRssi}</strong></span>
-          <span>Calibração: <strong>${snap.calibFactor} L/p</strong></span>
+          <span>Calibração: <strong>${snap.calibFactor}</strong></span>
         </div>
         <div style="display:flex; justify-content:space-between; margin-top:2px;">
           <span>Pulsos: <strong>${snap.pulsesTotal}</strong></span>
@@ -543,7 +603,7 @@ function generatePopupContent(snapshot) {
   `;
 }
 
-// 5. Inicialização do Mapa Leaflet
+// 7. Inicialização do Mapa Leaflet
 function createMarkerIcon(isOnline) {
   const statusClass = isOnline ? 'online' : 'offline';
   return L.divIcon({
@@ -560,12 +620,26 @@ function createMarkerIcon(isOnline) {
   });
 }
 
+function selectPoint(deviceId) {
+  selectedPointId = deviceId;
+  updateUI();
+
+  const pt = POINTS_CONFIG.find(p => p.device_id === deviceId);
+  if (pt && pt.latitude !== null && pt.longitude !== null && map) {
+    map.flyTo([pt.latitude, pt.longitude], 16, { animate: true, duration: 0.8 });
+    if (markers[deviceId]) {
+      markers[deviceId].openPopup();
+    }
+  }
+}
+
 function initMap() {
-  const hidro = POINTS_CONFIG[0];
-  const initialCoords = (hidro.latitude !== null && hidro.longitude !== null)
-    ? [hidro.latitude, hidro.longitude]
-    : [-22.7885, -50.2195];
-  const initialZoom = (hidro.latitude !== null && hidro.longitude !== null) ? 17 : 14;
+  const latLngs = POINTS_CONFIG
+    .filter(p => p.latitude !== null && p.longitude !== null)
+    .map(p => [p.latitude, p.longitude]);
+
+  const initialCoords = latLngs.length > 0 ? [-22.7862, -50.2202] : [-22.7885, -50.2195];
+  const initialZoom = 14;
 
   map = L.map('map', {
     zoomControl: true,
@@ -577,96 +651,139 @@ function initMap() {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
   }).addTo(map);
 
-  if (hidro.latitude !== null && hidro.longitude !== null) {
-    if (geoNotice) geoNotice.classList.add('hidden');
-    
-    marker = L.marker([hidro.latitude, hidro.longitude], {
-      icon: createMarkerIcon(false)
-    }).addTo(map);
+  POINTS_CONFIG.forEach(pt => {
+    if (pt.latitude !== null && pt.longitude !== null) {
+      const markerObj = L.marker([pt.latitude, pt.longitude], {
+        icon: createMarkerIcon(false)
+      }).addTo(map);
 
-    marker.bindTooltip(`
-      <div style="font-weight:700;">RESERVATÓRIO CENTRAL</div>
-      <div style="font-size:11px; color:#94a3b8;">HIDRO-001</div>
-    `, {
-      className: 'scada-map-tooltip',
-      direction: 'top',
-      offset: [0, -10]
-    });
+      markerObj.bindTooltip(`
+        <div style="font-weight:700;">${pt.name}</div>
+        <div style="font-size:11px; color:#94a3b8;">${pt.device_id}</div>
+      `, {
+        className: 'scada-map-tooltip',
+        direction: 'top',
+        offset: [0, -10]
+      });
 
-    marker.bindPopup(generatePopupContent(buildExecutiveSnapshot()));
-  } else {
-    if (geoNotice) geoNotice.classList.remove('hidden');
+      markerObj.bindPopup(generatePopupContent(buildExecutiveSnapshot(pt.device_id), pt));
+
+      markerObj.on('click', () => {
+        selectPoint(pt.device_id);
+      });
+
+      markers[pt.device_id] = markerObj;
+    }
+  });
+
+  if (latLngs.length > 1) {
+    const bounds = L.latLngBounds(latLngs);
+    map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
   }
+
+  if (geoNotice) geoNotice.classList.add('hidden');
 }
 
-// 7. Consulta às APIs Reais Protegidas por Bearer
-async function fetchTelemetryData() {
+// 8. Consulta às APIs Reais com device_id explícito
+async function fetchTelemetryDataForDevice(deviceId) {
   if (authFailureHandling) return;
   try {
     const [latestRes, sysRes, flowRes] = await Promise.all([
-      apiFetch('/api/telemetry/latest', { cache: 'no-store' }),
-      apiFetch('/api/telemetry/system-summary', { cache: 'no-store' }),
-      apiFetch('/api/telemetry/flow-summary', { cache: 'no-store' })
+      apiFetch(`/api/telemetry/latest?device_id=${encodeURIComponent(deviceId)}`, { cache: 'no-store' }),
+      apiFetch(`/api/telemetry/system-summary?device_id=${encodeURIComponent(deviceId)}`, { cache: 'no-store' }),
+      apiFetch(`/api/telemetry/flow-summary?device_id=${encodeURIComponent(deviceId)}`, { cache: 'no-store' })
     ]);
 
     if (latestRes && latestRes.ok) {
       const j = await latestRes.json();
-      if (j.ok) telemetryCache = j.data;
+      pointsData[deviceId].telemetry = (j.ok && j.data) ? j.data : null;
     }
     if (sysRes && sysRes.ok) {
       const j = await sysRes.json();
-      if (j.ok) systemSummaryCache = j;
+      pointsData[deviceId].systemSummary = (j.ok) ? j : null;
     }
     if (flowRes && flowRes.ok) {
       const j = await flowRes.json();
-      if (j.ok) flowSummaryCache = j;
+      pointsData[deviceId].flowSummary = (j.ok) ? j : null;
     }
 
     updateUI();
   } catch (err) {
-    console.error('Erro ao buscar dados de telemetria no mapa:', err);
+    console.error(`Erro ao buscar dados de telemetria (${deviceId}):`, err);
   }
 }
 
-async function fetchSessionsData() {
+async function fetchSessionsDataForDevice(deviceId) {
   if (authFailureHandling) return;
   try {
-    const res = await apiFetch('/api/telemetry/flow-sessions?limit=50', { cache: 'no-store' });
+    const res = await apiFetch(`/api/telemetry/flow-sessions?limit=50&device_id=${encodeURIComponent(deviceId)}`, { cache: 'no-store' });
     if (res && res.ok) {
       const j = await res.json();
-      if (j.ok) {
-        sessionsCache = j;
-      }
+      pointsData[deviceId].sessions = (j.ok) ? j : null;
     }
     updateUI();
   } catch (err) {
-    console.error('Erro ao buscar sessões no mapa:', err);
+    console.error(`Erro ao buscar sessões (${deviceId}):`, err);
   }
 }
 
-async function fetchDailySummary() {
+async function fetchDailySummaryForDevice(deviceId) {
   if (authFailureHandling) return;
   try {
-    const res = await apiFetch('/api/telemetry/daily-summary?days=7', { cache: 'no-store' });
+    const res = await apiFetch(`/api/telemetry/daily-summary?days=7&device_id=${encodeURIComponent(deviceId)}`, { cache: 'no-store' });
     if (res && res.ok) {
       const j = await res.json();
-      if (j.ok) {
-        dailySummaryCache = j;
-      }
+      pointsData[deviceId].dailySummary = (j.ok) ? j : null;
     }
     updateUI();
   } catch (err) {
-    console.error('Erro ao buscar daily summary no mapa:', err);
+    console.error(`Erro ao buscar daily summary (${deviceId}):`, err);
   }
 }
 
-// 8. Atualização Visual da Interface com Snapshot Único
+async function fetchFlowChart24hForDevice(deviceId) {
+  if (authFailureHandling) return;
+  try {
+    const res = await apiFetch(`/api/telemetry/flow-chart-24h?device_id=${encodeURIComponent(deviceId)}`, { cache: 'no-store' });
+    if (res && res.ok) {
+      const j = await res.json();
+      pointsData[deviceId].flowChart24h = (j.ok && Array.isArray(j.data)) ? j.data : [];
+      if (selectedPointId === deviceId) {
+        renderMapFlowChart(pointsData[deviceId].flowChart24h);
+      }
+    }
+  } catch (err) {
+    console.error(`Erro ao buscar gráfico 24h (${deviceId}):`, err);
+  }
+}
+
+async function fetchAllTelemetryData() {
+  await Promise.allSettled(POINTS_CONFIG.map(p => fetchTelemetryDataForDevice(p.device_id)));
+}
+
+async function fetchAllSessionsData() {
+  await Promise.allSettled(POINTS_CONFIG.map(p => fetchSessionsDataForDevice(p.device_id)));
+}
+
+async function fetchAllDailySummary() {
+  await Promise.allSettled(POINTS_CONFIG.map(p => fetchDailySummaryForDevice(p.device_id)));
+}
+
+async function fetchAllFlowChart24h() {
+  await Promise.allSettled(POINTS_CONFIG.map(p => fetchFlowChart24hForDevice(p.device_id)));
+}
+
+// 9. Atualização Visual da Interface com Snapshots Isolados
 function updateUI() {
-  const snapshot = buildExecutiveSnapshot();
+  const snap001 = buildExecutiveSnapshot('HIDRO-001');
+  const snap002 = buildExecutiveSnapshot('HIDRO-002');
+
+  const onlineCount = (snap001.isOnline ? 1 : 0) + (snap002.isOnline ? 1 : 0);
+  const activeSnap = selectedPointId === 'HIDRO-002' ? snap002 : snap001;
 
   // A. Header Communication Status
   if (commStatusBadge) {
-    if (snapshot.isOnline) {
+    if (onlineCount > 0) {
       commStatusBadge.className = 'status-indicator status-online';
       commStatusBadge.textContent = 'ONLINE';
     } else {
@@ -676,98 +793,175 @@ function updateUI() {
   }
 
   // B. Top Metric Cards (5 Cards Executivos)
-  if (valOnlinePoints) valOnlinePoints.textContent = snapshot.isOnline ? '1' : '0';
+  const totalPlanned = 34;
+  const registeredCount = POINTS_CONFIG.length;
+  const remainingPlanned = Math.max(0, totalPlanned - registeredCount);
 
-  // Volume Hoje (m³ em destaque)
+  if (valMonitoredPoints) valMonitoredPoints.innerHTML = `${registeredCount} <span class="metric-denom">/ ${totalPlanned}</span>`;
+  if (subMonitoredPoints) subMonitoredPoints.textContent = `${registeredCount} pontos cadastrados • ${remainingPlanned} previstos`;
+  if (badgePointsCount) badgePointsCount.textContent = `${registeredCount} / ${totalPlanned}`;
+  if (valOnlinePoints) valOnlinePoints.textContent = String(onlineCount);
+
+  // Volume Hoje (do ponto ativo selecionado)
   if (valTotalVolumeM3Main && valTotalVolumeLitersSub) {
-    valTotalVolumeM3Main.innerHTML = snapshot.todayVolM3Str;
-    valTotalVolumeLitersSub.textContent = `${snapshot.todayVolLitersSub} • Total: ${snapshot.totalVolM3Str}`;
+    valTotalVolumeM3Main.innerHTML = activeSnap.todayVolM3Str;
+    valTotalVolumeLitersSub.textContent = `${activeSnap.todayVolLitersSub} • Total: ${activeSnap.totalVolM3Str}`;
   }
 
-  // Vazão Atual ou Última Medição
-  if (valFlowTitleTop) valFlowTitleTop.textContent = snapshot.flowLabel;
+  // Vazão Atual ou Última Medição (do ponto ativo)
+  if (valFlowTitleTop) valFlowTitleTop.textContent = activeSnap.flowLabel;
   if (valCurrentFlowMain && valCurrentFlowM3hSub) {
-    valCurrentFlowMain.innerHTML = snapshot.flowLpmStr;
-    valCurrentFlowM3hSub.textContent = snapshot.flowM3hStr;
+    valCurrentFlowMain.innerHTML = activeSnap.flowLpmStr;
+    valCurrentFlowM3hSub.textContent = activeSnap.flowM3hStr;
   }
 
-  // Passagem Top Card
+  // Passagem Top Card (do ponto ativo)
   if (valSessionStatusTop && valSessionDetailTop) {
-    const colorStyle = snapshot.passageBadgeClass === 'status-online' ? 'color: #10b981;' : 'color: #64748b;';
-    valSessionStatusTop.innerHTML = `<span style="${colorStyle} font-weight: 800;">${snapshot.passageState}</span>`;
-    valSessionDetailTop.textContent = snapshot.passageDetail;
+    const colorStyle = activeSnap.passageBadgeClass === 'status-online' ? 'color: #10b981;' : 'color: #64748b;';
+    valSessionStatusTop.innerHTML = `<span style="${colorStyle} font-weight: 800;">${activeSnap.passageState}</span>`;
+    valSessionDetailTop.textContent = activeSnap.passageDetail;
   }
 
-  // C. Side Card HIDRO-001 (RESERVATÓRIO CENTRAL)
-  if (hidroStatusPill) {
-    hidroStatusPill.className = snapshot.isOnline ? 'status-pill status-online' : 'status-pill status-offline';
-    hidroStatusPill.textContent = snapshot.isOnline ? 'ONLINE' : 'OFFLINE';
-  }
-
-  if (hidroFlowLabel) hidroFlowLabel.textContent = snapshot.flowLabel;
-  if (hidroFlowRecent && hidroFlowM3h) {
-    hidroFlowRecent.innerHTML = snapshot.flowLpmStr;
-    hidroFlowM3h.textContent = snapshot.flowM3hStr;
-  }
-
-  if (hidroVolumeM3 && hidroVolumeLiters) {
-    hidroVolumeM3.innerHTML = snapshot.todayVolM3Str;
-    hidroVolumeLiters.textContent = `${snapshot.todayVolLitersSub} • Total: ${snapshot.totalVolM3Str}`;
-  }
-
-  if (hidroFlowAvg && hidroFlowMax) {
-    hidroFlowAvg.innerHTML = snapshot.todayAvgFlowStr;
-    hidroFlowMax.textContent = snapshot.todayMaxFlowStr;
-  }
-
-  if (hidroSessionStatus && hidroSessionDetail) {
-    const colorStyle = snapshot.passageBadgeClass === 'status-online' ? 'color: #10b981;' : 'color: #64748b;';
-    hidroSessionStatus.innerHTML = `<span style="${colorStyle} font-weight: 700;">${snapshot.passageState}</span>`;
-    hidroSessionDetail.textContent = snapshot.passageDetail;
-  }
-
-  if (hidroLastReceivedHuman && hidroLastReceivedTime) {
-    hidroLastReceivedHuman.textContent = snapshot.lastSignalHuman;
-    hidroLastReceivedTime.textContent = snapshot.lastSignalTime;
-  }
-
-  if (hidroRssi) hidroRssi.textContent = snapshot.wifiRssi;
-  if (hidroCalibFactor) hidroCalibFactor.textContent = `${snapshot.calibFactor} L/p`;
-  if (hidroPulsesTotal) hidroPulsesTotal.textContent = `${snapshot.pulsesTotal} p`;
-
-  if (hidroGeoStatus) {
-    const hidro = POINTS_CONFIG[0];
-    if (hidro.latitude !== null && hidro.longitude !== null) {
-      hidroGeoStatus.className = 'tech-val font-mono text-online';
-      hidroGeoStatus.textContent = `${hidro.latitude.toFixed(6)}, ${hidro.longitude.toFixed(6)}`;
+  // C. Side Card HIDRO-001 (Caixa da Santa)
+  if (cardHidro001) {
+    if (selectedPointId === 'HIDRO-001') {
+      cardHidro001.style.borderColor = '#0284c7';
+      cardHidro001.style.background = '#f8fafc';
     } else {
-      hidroGeoStatus.className = 'tech-val font-mono text-warning';
-      hidroGeoStatus.textContent = 'Pendente';
+      cardHidro001.style.borderColor = '';
+      cardHidro001.style.background = '';
     }
   }
 
-  // D. Atualização do Marcador e Popup no Leaflet
-  if (marker) {
-    marker.setIcon(createMarkerIcon(snapshot.isOnline));
-    marker.setPopupContent(generatePopupContent(snapshot));
+  if (hidroStatusPill) {
+    hidroStatusPill.className = snap001.isOnline ? 'status-pill status-online' : 'status-pill status-offline';
+    hidroStatusPill.textContent = snap001.isOnline ? 'ONLINE' : 'OFFLINE';
   }
 
-  // E. Filtros e Busca
-  applyFilters(snapshot.isOnline);
+  if (hidroFlowLabel) hidroFlowLabel.textContent = snap001.flowLabel;
+  if (hidroFlowRecent && hidroFlowM3h) {
+    hidroFlowRecent.innerHTML = snap001.flowLpmStr;
+    hidroFlowM3h.textContent = snap001.flowM3hStr;
+  }
 
-  // F. Footer Status Bar
+  if (hidroVolumeM3 && hidroVolumeLiters) {
+    hidroVolumeM3.innerHTML = snap001.todayVolM3Str;
+    hidroVolumeLiters.textContent = `${snap001.todayVolLitersSub} • Total: ${snap001.totalVolM3Str}`;
+  }
+
+  if (hidroFlowAvg && hidroFlowMax) {
+    hidroFlowAvg.innerHTML = snap001.todayAvgFlowStr;
+    hidroFlowMax.textContent = snap001.todayMaxFlowStr;
+  }
+
+  if (hidroSessionStatus && hidroSessionDetail) {
+    const colorStyle = snap001.passageBadgeClass === 'status-online' ? 'color: #10b981;' : 'color: #64748b;';
+    hidroSessionStatus.innerHTML = `<span style="${colorStyle} font-weight: 700;">${snap001.passageState}</span>`;
+    hidroSessionDetail.textContent = snap001.passageDetail;
+  }
+
+  if (hidroLastReceivedHuman && hidroLastReceivedTime) {
+    hidroLastReceivedHuman.textContent = snap001.lastSignalHuman;
+    hidroLastReceivedTime.textContent = snap001.lastSignalTime;
+  }
+
+  if (hidroRssi) hidroRssi.textContent = snap001.wifiRssi;
+  if (hidroCalibFactor) hidroCalibFactor.textContent = snap001.calibFactor;
+  if (hidroPulsesTotal) hidroPulsesTotal.textContent = `${snap001.pulsesTotal} p`;
+
+  if (hidroGeoStatus) {
+    const p1 = POINTS_CONFIG[0];
+    hidroGeoStatus.className = 'tech-val font-mono text-online';
+    hidroGeoStatus.textContent = `${p1.latitude.toFixed(6)}, ${p1.longitude.toFixed(6)}`;
+  }
+
+  // D. Side Card HIDRO-002 (Caixa do Guri)
+  if (cardHidro002) {
+    if (selectedPointId === 'HIDRO-002') {
+      cardHidro002.style.borderColor = '#0284c7';
+      cardHidro002.style.background = '#f8fafc';
+    } else {
+      cardHidro002.style.borderColor = '';
+      cardHidro002.style.background = '';
+    }
+  }
+
+  if (hidro002StatusPill) {
+    hidro002StatusPill.className = snap002.isOnline ? 'status-pill status-online' : 'status-pill status-offline';
+    hidro002StatusPill.textContent = snap002.isOnline ? 'ONLINE' : 'OFFLINE';
+  }
+
+  if (hidro002FlowLabel) hidro002FlowLabel.textContent = snap002.flowLabel;
+  if (hidro002FlowRecent && hidro002FlowM3h) {
+    hidro002FlowRecent.innerHTML = snap002.flowLpmStr;
+    hidro002FlowM3h.textContent = snap002.flowM3hStr;
+  }
+
+  if (hidro002VolumeM3 && hidro002VolumeLiters) {
+    hidro002VolumeM3.innerHTML = snap002.todayVolM3Str;
+    hidro002VolumeLiters.textContent = `${snap002.todayVolLitersSub} • Total: ${snap002.totalVolM3Str}`;
+  }
+
+  if (hidro002FlowAvg && hidro002FlowMax) {
+    hidro002FlowAvg.innerHTML = snap002.todayAvgFlowStr;
+    hidro002FlowMax.textContent = snap002.todayMaxFlowStr;
+  }
+
+  if (hidro002SessionStatus && hidro002SessionDetail) {
+    const colorStyle = snap002.passageBadgeClass === 'status-online' ? 'color: #10b981;' : 'color: #64748b;';
+    hidro002SessionStatus.innerHTML = `<span style="${colorStyle} font-weight: 700;">${snap002.passageState}</span>`;
+    hidro002SessionDetail.textContent = snap002.passageDetail;
+  }
+
+  if (hidro002LastReceivedHuman && hidro002LastReceivedTime) {
+    hidro002LastReceivedHuman.textContent = snap002.lastSignalHuman;
+    hidro002LastReceivedTime.textContent = snap002.lastSignalTime;
+  }
+
+  if (hidro002Rssi) hidro002Rssi.textContent = snap002.wifiRssi;
+  if (hidro002CalibFactor) hidro002CalibFactor.textContent = snap002.calibFactor;
+  if (hidro002PulsesTotal) hidro002PulsesTotal.textContent = `${snap002.pulsesTotal} p`;
+
+  if (hidro002GeoStatus) {
+    const p2 = POINTS_CONFIG[1];
+    hidro002GeoStatus.className = 'tech-val font-mono text-online';
+    hidro002GeoStatus.textContent = `${p2.latitude.toFixed(6)}, ${p2.longitude.toFixed(6)}`;
+  }
+
+  // E. Atualização dos Marcadores e Popups no Leaflet
+  if (markers['HIDRO-001']) {
+    markers['HIDRO-001'].setIcon(createMarkerIcon(snap001.isOnline));
+    markers['HIDRO-001'].setPopupContent(generatePopupContent(snap001, POINTS_CONFIG[0]));
+  }
+  if (markers['HIDRO-002']) {
+    markers['HIDRO-002'].setIcon(createMarkerIcon(snap002.isOnline));
+    markers['HIDRO-002'].setPopupContent(generatePopupContent(snap002, POINTS_CONFIG[1]));
+  }
+
+  // F. Filtros e Busca
+  applyFilters(snap001.isOnline, snap002.isOnline);
+
+  // G. Footer Status Bar
   if (barLastEsp) {
-    if (telemetryCache?.received_at) {
-      const d = new Date(telemetryCache.received_at);
+    const rec001 = pointsData['HIDRO-001']?.telemetry?.received_at;
+    const rec002 = pointsData['HIDRO-002']?.telemetry?.received_at;
+    const mostRecent = rec001 || rec002;
+    if (mostRecent) {
+      const d = new Date(mostRecent);
       barLastEsp.textContent = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
     } else {
       barLastEsp.textContent = '--:--:--';
     }
   }
 
-  // F. Gráfico 24h Header Status Badge & Relative Time
+  if (barLastRefresh) {
+    barLastRefresh.textContent = new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  }
+
+  // H. Gráfico 24h Header Status Badge & Relative Time do Ponto Ativo
   if (mapSessionStatusBadge && mapSessionStatusText) {
-    const sum = sessionsCache?.summary;
+    const activeSessions = pointsData[selectedPointId]?.sessions;
+    const sum = activeSessions?.summary;
     const hasOpen = sum && sum.open_session;
     if (hasOpen) {
       mapSessionStatusBadge.className = 'session-status-badge status-online';
@@ -779,50 +973,63 @@ function updateUI() {
   }
 
   if (mapValLastPulseRelative) {
-    const lastPulseAt = flowSummaryCache?.last_pulse_at || sessionsCache?.summary?.latest_session?.last_pulse_at;
+    const activeFlow = pointsData[selectedPointId]?.flowSummary;
+    const activeSessions = pointsData[selectedPointId]?.sessions;
+    const lastPulseAt = activeFlow?.last_pulse_at || activeSessions?.summary?.latest_session?.last_pulse_at;
     mapValLastPulseRelative.textContent = lastPulseAt ? formatHumanRelativeTime(lastPulseAt) : 'Nenhum pulso registrado';
   }
 }
 
+// 10. Filtros e Busca em Memória
+function applyFilters(isOnline001, isOnline002) {
+  const totalCount = POINTS_CONFIG.length;
+  const onlineCount = (isOnline001 ? 1 : 0) + (isOnline002 ? 1 : 0);
+  const offlineCount = Math.max(0, totalCount - onlineCount);
 
-// 9. Filtros e Busca em Memória
-function applyFilters(isOnline) {
-  if (countAll) countAll.textContent = '1';
-  if (countOnline) countOnline.textContent = isOnline ? '1' : '0';
-  if (countOffline) countOffline.textContent = isOnline ? '0' : '1';
+  if (countAll) countAll.textContent = String(totalCount);
+  if (countOnline) countOnline.textContent = String(onlineCount);
+  if (countOffline) countOffline.textContent = String(offlineCount);
 
-  let visible = true;
+  const q = searchQuery.trim().toLowerCase();
 
-  // Filtro de Status
-  if (currentFilter === 'online' && !isOnline) visible = false;
-  if (currentFilter === 'offline' && isOnline) visible = false;
-
-  // Filtro de Busca
-  if (searchQuery.trim() !== '') {
-    const q = searchQuery.trim().toLowerCase();
-    const match = 'reservatório central'.includes(q) ||
-                  'reservatorio central'.includes(q) ||
-                  'reservatório'.includes(q) ||
-                  'reservatorio'.includes(q) ||
-                  'central'.includes(q) ||
-                  'hidro-001'.includes(q) ||
-                  'hidrômetro'.includes(q) ||
-                  'hidrometro'.includes(q) ||
-                  'dn50'.includes(q) ||
-                  'palmital'.includes(q);
-    if (!match) visible = false;
+  // Filtragem Card 1 (HIDRO-001)
+  let visible001 = true;
+  if (currentFilter === 'online' && !isOnline001) visible001 = false;
+  if (currentFilter === 'offline' && isOnline001) visible001 = false;
+  if (q !== '') {
+    const match001 = 'caixa da santa'.includes(q) ||
+                     'reservatório central'.includes(q) ||
+                     'reservatorio central'.includes(q) ||
+                     'santa'.includes(q) ||
+                     'hidro-001'.includes(q) ||
+                     'palmital'.includes(q);
+    if (!match001) visible001 = false;
   }
 
   if (cardHidro001) {
-    if (visible) {
-      cardHidro001.classList.remove('hidden');
-    } else {
-      cardHidro001.classList.add('hidden');
-    }
+    if (visible001) cardHidro001.classList.remove('hidden');
+    else cardHidro001.classList.add('hidden');
+  }
+
+  // Filtragem Card 2 (HIDRO-002)
+  let visible002 = true;
+  if (currentFilter === 'online' && !isOnline002) visible002 = false;
+  if (currentFilter === 'offline' && isOnline002) visible002 = false;
+  if (q !== '') {
+    const match002 = 'caixa do guri'.includes(q) ||
+                     'guri'.includes(q) ||
+                     'hidro-002'.includes(q) ||
+                     'palmital'.includes(q);
+    if (!match002) visible002 = false;
+  }
+
+  if (cardHidro002) {
+    if (visible002) cardHidro002.classList.remove('hidden');
+    else cardHidro002.classList.add('hidden');
   }
 }
 
-// 10. Funções do Gráfico 24h Executivo (Comportamento da Vazão)
+// 11. Funções do Gráfico 24h Executivo (Comportamento da Vazão)
 function calculateNiceTicks(maxValue, targetTicks = 5) {
   if (typeof maxValue !== 'number' || isNaN(maxValue) || maxValue <= 0) {
     return [0, 10, 20, 30, 40, 50];
@@ -887,18 +1094,15 @@ function handleMapFlowChartInteraction(e) {
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
   const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
-  // 1. Converter coordenadas do cursor para o espaço do viewBox SVG (0..700, 0..240)
   const svgX = ((clientX - rect.left) / rect.width) * MAP_FLOW_CHART_GEOMETRY.width;
   const svgY = ((clientY - rect.top) / rect.height) * MAP_FLOW_CHART_GEOMETRY.height;
 
-  // 2. Limites exatos do plot útil (área de desenho da curva)
   const plotLeft = MAP_FLOW_CHART_GEOMETRY.padLeft;
   const plotRight = MAP_FLOW_CHART_GEOMETRY.width - MAP_FLOW_CHART_GEOMETRY.padRight;
   const plotTop = MAP_FLOW_CHART_GEOMETRY.padTop;
   const plotBottom = MAP_FLOW_CHART_GEOMETRY.height - MAP_FLOW_CHART_GEOMETRY.padBottom;
   const TOLERANCE = 4;
 
-  // 3. Hit-test estrito: se o cursor estiver fora da área do plot, esconder imediatamente
   if (
     svgX < plotLeft - TOLERANCE ||
     svgX > plotRight + TOLERANCE ||
@@ -909,7 +1113,6 @@ function handleMapFlowChartInteraction(e) {
     return;
   }
 
-  // 4. Encontrar o ponto/bucket mais próximo dentro dos 288 buckets
   let closest = cachedMapFlowChartPoints[0];
   let minDiff = Math.abs(svgX - closest.x);
   for (let i = 1; i < cachedMapFlowChartPoints.length; i++) {
@@ -927,7 +1130,6 @@ function handleMapFlowChartInteraction(e) {
 
   const targetY = closest.y !== null ? closest.y : plotBottom;
 
-  // 5. Atualizar marcador vertical ancorado no dado real do bucket
   if (interactiveGroup && guideline && highlightPoint && highlightRing) {
     guideline.setAttribute('x1', closest.x.toFixed(1));
     guideline.setAttribute('x2', closest.x.toFixed(1));
@@ -947,7 +1149,6 @@ function handleMapFlowChartInteraction(e) {
     interactiveGroup.style.display = '';
   }
 
-  // 6. Atualizar Tooltip HTML e posicionamento com acompanhamento do cursor + detecção de colisão
   if (flowTooltip && mapChartFlowWrapper) {
     let statusText = 'SEM PASSAGEM';
     let statusClass = 'status-no-flow';
@@ -999,18 +1200,14 @@ function handleMapFlowChartInteraction(e) {
     const cursorX = clientX - wrapperRect.left;
     const cursorY = clientY - wrapperRect.top;
 
-    // Posicionamento horizontal acompanhando o cursor e limitado pelas bordas do container
     const clampedX = Math.max(120, Math.min(wrapperRect.width - 120, cursorX));
     flowTooltip.style.left = `${clampedX}px`;
 
-    // Posicionamento vertical acompanhando o cursor com inversão inteligente (Flip Top/Bottom)
     if (cursorY < 145) {
-      // Abre abaixo do cursor quando próximo ao topo para evitar corte visual
       flowTooltip.style.top = `${cursorY}px`;
       flowTooltip.style.transform = 'translate(-50%, 0)';
       flowTooltip.style.marginTop = '14px';
     } else {
-      // Abre acima do cursor
       flowTooltip.style.top = `${cursorY}px`;
       flowTooltip.style.transform = 'translate(-50%, -100%)';
       flowTooltip.style.marginTop = '-12px';
@@ -1029,21 +1226,6 @@ function hideMapFlowChartInteraction() {
     flowTooltip.style.marginTop = '';
   }
   if (interactiveGroup) interactiveGroup.style.display = 'none';
-}
-
-async function fetchFlowChart24h() {
-  if (authFailureHandling) return;
-  try {
-    const res = await apiFetch('/api/telemetry/flow-chart-24h', { cache: 'no-store' });
-    if (res && res.ok) {
-      const j = await res.json();
-      if (j.ok) {
-        renderMapFlowChart(j.data || []);
-      }
-    }
-  } catch (err) {
-    console.error('Erro ao buscar dados do gráfico 24h no mapa:', err);
-  }
 }
 
 function renderMapFlowChart(chartBuckets) {
@@ -1067,10 +1249,9 @@ function renderMapFlowChart(chartBuckets) {
   const padBottom = MAP_FLOW_CHART_GEOMETRY.padBottom;
   const chartW = width - padLeft - padRight;
   const chartH = height - padTop - padBottom;
-  const bottomY = height - padBottom; // 205
-  const topY = padTop; // 20
+  const bottomY = height - padBottom;
+  const topY = padTop;
 
-  // Obter maior vazão válida baseada SOMENTE em flow_lpm para definir escala do eixo Y
   const flowVals = chartBuckets
     .filter(b => typeof b.flow_lpm === 'number' && b.flow_lpm > 0)
     .map(b => b.flow_lpm);
@@ -1104,7 +1285,6 @@ function renderMapFlowChart(chartBuckets) {
 
   cachedMapFlowChartPoints = points;
 
-  // Dividir em segmentos contínuos com valores numéricos (ignora gaps de insufficient_data)
   const segments = [];
   let currentSeg = [];
 
@@ -1139,7 +1319,6 @@ function renderMapFlowChart(chartBuckets) {
     `;
   });
 
-  // Ticks e Grid do Eixo Y
   let yGridSvg = '';
   ticks.forEach(tickVal => {
     const tickY = bottomY - (tickVal / niceMax) * chartH;
@@ -1153,7 +1332,6 @@ function renderMapFlowChart(chartBuckets) {
     `;
   });
 
-  // 5 marcas temporais de referência no Eixo X (24h)
   const timeTickIndices = [
     0,
     Math.floor(total * 0.25),
@@ -1200,14 +1378,14 @@ function renderMapFlowChart(chartBuckets) {
   mapChartFlowSvg.innerHTML = svgContent;
 }
 
-// 11. Setup Event Listeners
+// 12. Setup Event Listeners
 function setupEventListeners() {
   if (btnRefresh) {
     btnRefresh.addEventListener('click', () => {
-      fetchTelemetryData();
-      fetchSessionsData();
-      fetchDailySummary();
-      fetchFlowChart24h();
+      fetchAllTelemetryData();
+      fetchAllSessionsData();
+      fetchAllDailySummary();
+      fetchAllFlowChart24h();
     });
   }
 
@@ -1224,21 +1402,22 @@ function setupEventListeners() {
 
   if (cardHidro001) {
     cardHidro001.addEventListener('click', () => {
-      const hidro = POINTS_CONFIG[0];
-      if (map && hidro.latitude !== null && hidro.longitude !== null) {
-        map.flyTo([hidro.latitude, hidro.longitude], 17, { animate: true, duration: 0.8 });
-        if (marker) marker.openPopup();
-      }
+      selectPoint('HIDRO-001');
+    });
+  }
+
+  if (cardHidro002) {
+    cardHidro002.addEventListener('click', () => {
+      selectPoint('HIDRO-002');
     });
   }
 
   if (inputSearch) {
     inputSearch.addEventListener('input', (e) => {
       searchQuery = e.target.value;
-      const now = Date.now();
-      const recAt = telemetryCache?.received_at ? new Date(telemetryCache.received_at).getTime() : null;
-      const isOnline = recAt !== null && (now - recAt <= 20000);
-      applyFilters(isOnline);
+      const snap001 = buildExecutiveSnapshot('HIDRO-001');
+      const snap002 = buildExecutiveSnapshot('HIDRO-002');
+      applyFilters(snap001.isOnline, snap002.isOnline);
     });
   }
 
@@ -1248,10 +1427,9 @@ function setupEventListeners() {
       tab.classList.add('active');
       currentFilter = tab.getAttribute('data-filter') || 'all';
       
-      const now = Date.now();
-      const recAt = telemetryCache?.received_at ? new Date(telemetryCache.received_at).getTime() : null;
-      const isOnline = recAt !== null && (now - recAt <= 20000);
-      applyFilters(isOnline);
+      const snap001 = buildExecutiveSnapshot('HIDRO-001');
+      const snap002 = buildExecutiveSnapshot('HIDRO-002');
+      applyFilters(snap001.isOnline, snap002.isOnline);
     });
   });
 
@@ -1290,7 +1468,6 @@ async function loadAuthConfigWithRetry(maxAttempts = 3) {
   return null;
 }
 
-// Obter sessão com retry curto para absorver latência de storage em mobile
 async function getSessionWithShortRetry(client, maxAttempts = 3) {
   for (let i = 0; i < maxAttempts; i++) {
     try {
@@ -1306,7 +1483,6 @@ async function getSessionWithShortRetry(client, maxAttempts = 3) {
   return null;
 }
 
-// Obter usuário distinguindo erro transitório de rede vs falha definitiva de autenticação
 async function getUserWithRetry(client, maxAttempts = 2) {
   let lastError = null;
   for (let i = 0; i < maxAttempts; i++) {
@@ -1332,10 +1508,9 @@ async function getUserWithRetry(client, maxAttempts = 2) {
   return { user: null, isAuthError: false, error: lastError };
 }
 
-// 12. Auth Guard e Inicialização
+// 13. Auth Guard e Inicialização
 async function initAuthAndApp() {
   try {
-    // A. Carregar configuração pública do Supabase com retry (falhas de rede/5xx NÃO deslogam)
     const authConfig = await loadAuthConfigWithRetry(3);
     if (!authConfig) {
       console.error('Falha temporária ao carregar configuração de autenticação no mapa.');
@@ -1347,10 +1522,8 @@ async function initAuthAndApp() {
     const { cfg, key } = authConfig;
     supabaseClient = window.supabase.createClient(cfg.supabase_url, key);
 
-    // B. Obter Sessão com retry curto (absorver sincronização de storage em mobile)
     const session = await getSessionWithShortRetry(supabaseClient, 3);
     if (!session) {
-      // Sessão comprovadamente ausente: limpeza local defensiva antes de redirecionar
       try {
         await supabaseClient.auth.signOut({ scope: 'local' });
       } catch (e) {
@@ -1360,7 +1533,6 @@ async function initAuthAndApp() {
       return;
     }
 
-    // C. Validar Usuário e Token
     let { user, isAuthError } = await getUserWithRetry(supabaseClient, 2);
 
     if (isAuthError || (!user && !isAuthError)) {
@@ -1378,7 +1550,6 @@ async function initAuthAndApp() {
 
     if (!user) {
       if (isAuthError) {
-        // Token inválido/expirado e sem recuperação: signOut local + login?expired=1
         try {
           await supabaseClient.auth.signOut({ scope: 'local' });
         } catch (e) {
@@ -1387,7 +1558,6 @@ async function initAuthAndApp() {
         window.location.replace('/login.html?expired=1');
         return;
       } else {
-        // Erro temporário de rede: não redirecionar para login em loop
         console.warn('Falha temporária de rede ao validar usuário no mapa.');
         document.body.classList.remove('auth-loading');
         alert('Instabilidade temporária de rede ao validar a sessão. Recarregue a página.');
@@ -1395,7 +1565,6 @@ async function initAuthAndApp() {
       }
     }
 
-    // D. Validar Role
     const role = user.app_metadata?.role;
     if (role !== 'admin' && role !== 'viewer') {
       try {
@@ -1407,28 +1576,24 @@ async function initAuthAndApp() {
       return;
     }
 
-    // E. Ajustes de UI baseados no Perfil (ADMIN vê botão técnico, VIEWER não vê)
     if (role === 'admin') {
       if (linkDashboard) linkDashboard.classList.remove('hidden');
     } else {
       if (linkDashboard) linkDashboard.classList.add('hidden');
     }
 
-    // F. Liberar Renderização (Remover anti-flash)
     document.body.classList.remove('auth-loading');
 
-    // G. Inicializar Mapa e Listeners
     initMap();
     setupEventListeners();
 
-    // H. Carga Inicial de Dados e Início de Polling Gerenciado
     if (!authFailureHandling) {
       isAppInitialized = true;
       await Promise.allSettled([
-        fetchTelemetryData(),
-        fetchSessionsData(),
-        fetchDailySummary(),
-        fetchFlowChart24h()
+        fetchAllTelemetryData(),
+        fetchAllSessionsData(),
+        fetchAllDailySummary(),
+        fetchAllFlowChart24h()
       ]);
 
       if (!authFailureHandling) {
@@ -1454,10 +1619,10 @@ function startPollingIntervals() {
   clearAllIntervals();
   if (authFailureHandling) return;
 
-  registerInterval(fetchTelemetryData, 5000);
-  registerInterval(fetchSessionsData, 15000);
-  registerInterval(fetchDailySummary, 60000);
-  registerInterval(fetchFlowChart24h, 60000);
+  registerInterval(fetchAllTelemetryData, 5000);
+  registerInterval(fetchAllSessionsData, 15000);
+  registerInterval(fetchAllDailySummary, 60000);
+  registerInterval(fetchAllFlowChart24h, 60000);
 }
 
 async function resumePolling() {
@@ -1481,10 +1646,10 @@ async function resumePolling() {
       }
 
       await Promise.allSettled([
-        fetchTelemetryData(),
-        fetchSessionsData(),
-        fetchDailySummary(),
-        fetchFlowChart24h()
+        fetchAllTelemetryData(),
+        fetchAllSessionsData(),
+        fetchAllDailySummary(),
+        fetchAllFlowChart24h()
       ]);
 
       if (!authFailureHandling && (!document.hidden || typeof document === 'undefined')) {
@@ -1500,7 +1665,7 @@ async function resumePolling() {
   return resumePromise;
 }
 
-// Lifecycle Listeners (Background Pause / Foreground Resume / Offline / Online / BFCache)
+// Lifecycle Listeners
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     logAuthEvent('AUTH_BACKGROUND_PAUSE');
