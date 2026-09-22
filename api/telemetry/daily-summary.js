@@ -22,6 +22,7 @@ export default async function handler(req, res) {
   if (!auth) return;
 
   try {
+    const url = new URL(req.url, `https://${req.headers.host || 'localhost'}`);
     const rawDeviceId = url.searchParams.get('device_id');
     const deviceId = typeof rawDeviceId === 'string' ? rawDeviceId.trim() : '';
 
