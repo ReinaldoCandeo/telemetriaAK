@@ -708,6 +708,9 @@ async function fetchSystemSummary(expectedGen) {
     if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (result.ok) {
       systemTotalsCache = result;
+      if (dashboardView && dashboardView.classList.contains('hidden') && (result.system_pulse_total > 0 || result.last_pulse_at)) {
+        updateUI(null);
+      }
     }
   } catch (err) {
     if (err.message !== 'Sessão expirada.') {
@@ -735,6 +738,98 @@ function getRssiQuality(rssi) {
 
 function updateUI(telemetry) {
   if (!telemetry || !telemetry.device_id) {
+    const hasHistoricalData = systemTotalsCache && (
+      (typeof systemTotalsCache.system_pulse_total === 'number' && systemTotalsCache.system_pulse_total > 0) ||
+      systemTotalsCache.last_pulse_at ||
+      (typeof systemTotalsCache.pulse_events_total === 'number' && systemTotalsCache.pulse_events_total > 0)
+    );
+
+    if (hasHistoricalData) {
+      waitingView.classList.add('hidden');
+      dashboardView.classList.remove('hidden');
+
+      statusBadge.className = 'status-indicator status-offline';
+      statusText.textContent = 'OFFLINE';
+
+      headerDeviceId.textContent = selectedDeviceId;
+      valDeviceId.textContent = selectedDeviceId;
+
+      const sysPulseTotal = systemTotalsCache.system_pulse_total || 0;
+      valPulseTotal.textContent = sysPulseTotal.toLocaleString('pt-BR');
+      valPulseDelta.textContent = `Acumulado preservado • Dispositivo offline`;
+
+      if (valEspPulseCount) {
+        valEspPulseCount.textContent = sysPulseTotal.toLocaleString('pt-BR');
+      }
+
+      const calib = {
+        status: systemTotalsCache.calibration_status || 'pending',
+        liters_per_pulse: systemTotalsCache.liters_per_pulse
+      };
+      const sysVolLiters = systemTotalsCache.system_volume_liters;
+
+      if (calib && calib.status === 'calibrated' && sysVolLiters !== null && sysVolLiters !== undefined) {
+        const calcLiters = Number(sysVolLiters);
+        const calcM3 = calcLiters / 1000;
+        valLitersTotal.innerHTML = `${calcM3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="unit">m³</span>`;
+        if (valLitersSub) {
+          valLitersSub.textContent = `${calcLiters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L acumulados desde o início • ${sysPulseTotal.toLocaleString('pt-BR')} pulsos acumulados`;
+        }
+        if (valLitersBadge) {
+          valLitersBadge.textContent = `Fator: 1p = ${calib.liters_per_pulse}L`;
+        }
+
+        if (valCalibStatusText) valCalibStatusText.textContent = 'CALIBRADO';
+        if (valCalibBadge) valCalibBadge.textContent = 'Calibrado';
+        if (valCalibFactorSub) valCalibFactorSub.textContent = `1 pulso = ${calib.liters_per_pulse} Litros`;
+
+        if (calibStatusBadge) {
+          calibStatusBadge.className = 'status-indicator status-online';
+          calibStatusText.textContent = 'CALIBRADO';
+        }
+        if (calibFactorText) {
+          calibFactorText.textContent = `Fator de calibração ativo: 1 pulso = ${calib.liters_per_pulse} Litros`;
+        }
+        if (inputLitersPerPulse && !document.activeElement.matches('#input-liters-per-pulse')) {
+          inputLitersPerPulse.value = calib.liters_per_pulse;
+        }
+      } else {
+        valLitersTotal.innerHTML = `<span style="font-size: 1.75rem; color: #f59e0b;">CALIBRAÇÃO PENDENTE</span>`;
+        if (valLitersSub) {
+          valLitersSub.textContent = `Volume ainda não calibrado • ${sysPulseTotal.toLocaleString('pt-BR')} pulsos acumulados no histórico`;
+        }
+        if (valLitersBadge) {
+          valLitersBadge.textContent = 'Leitura Estimada';
+        }
+
+        if (valCalibStatusText) valCalibStatusText.textContent = 'PENDENTE';
+        if (valCalibBadge) valCalibBadge.textContent = 'Pendente';
+        if (valCalibFactorSub) valCalibFactorSub.textContent = 'Fator: não configurado';
+
+        if (calibStatusBadge) {
+          calibStatusBadge.className = 'status-indicator status-offline';
+          calibStatusText.textContent = 'CALIBRAÇÃO PENDENTE';
+        }
+        if (calibFactorText) {
+          calibFactorText.textContent = 'Calibração pendente (fator não configurado)';
+        }
+      }
+
+      valRssi.innerHTML = `-- <span class="unit">dBm</span>`;
+      valRssiQuality.textContent = 'Sem dados';
+      valRssiQuality.className = 'rssi-quality-pill';
+
+      if (systemTotalsCache.last_pulse_at) {
+        const receivedDate = new Date(systemTotalsCache.last_pulse_at);
+        valReceivedTime.textContent = receivedDate.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        valReceivedDate.textContent = receivedDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      } else {
+        valReceivedTime.textContent = '--:--:--';
+        valReceivedDate.textContent = '--/--/----';
+      }
+      return;
+    }
+
     waitingView.classList.remove('hidden');
     dashboardView.classList.add('hidden');
 
@@ -1567,6 +1662,11 @@ function updateHistoryUI(historyList) {
   }
 
   if (historyEmptyState) historyEmptyState.classList.add('hidden');
+
+  if (waitingView && dashboardView && dashboardView.classList.contains('hidden')) {
+    waitingView.classList.add('hidden');
+    dashboardView.classList.remove('hidden');
+  }
 
   // Filter pulse events for summary counters
   const pulseEvents = historyList.filter(e => e.type === 'pulse');
