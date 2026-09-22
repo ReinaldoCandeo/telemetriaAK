@@ -1,4 +1,9 @@
+import { createClient } from '@supabase/supabase-js';
 import { autoRecoverPastDays, getTodayLocalDateStr, getYesterdayLocalDateStr } from '../_lib/daily-summary.js';
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -36,25 +41,71 @@ export default async function handler(req, res) {
 
   try {
     const url = new URL(req.url, `https://${req.headers.host || 'localhost'}`);
-    const deviceId = url.searchParams.get('device_id') || 'HIDRO-001';
+    const explicitDeviceId = url.searchParams.get('device_id');
+
+    let targetDeviceIds = [];
+
+    // Se um device_id específico for passado por parâmetro, processa apenas ele
+    if (explicitDeviceId && explicitDeviceId.trim() !== '') {
+      targetDeviceIds = [explicitDeviceId.trim()];
+    } else {
+      // Caso contrário (execução padrão do cron), busca todos os dispositivos cadastrados na tabela devices
+      if (supabase) {
+        const { data: devicesList, error: devError } = await supabase
+          .from('devices')
+          .select('device_id')
+          .order('device_id', { ascending: true });
+
+        if (!devError && Array.isArray(devicesList) && devicesList.length > 0) {
+          targetDeviceIds = devicesList
+            .map(d => d.device_id)
+            .filter(id => typeof id === 'string' && id.trim() !== '');
+        }
+      }
+
+      // Fallback de segurança: se a tabela devices estiver vazia ou inacessível, processa HIDRO-001
+      if (targetDeviceIds.length === 0) {
+        targetDeviceIds = ['HIDRO-001'];
+      }
+    }
 
     const todayStr = getTodayLocalDateStr();
     const yesterdayStr = getYesterdayLocalDateStr();
 
-    // 2. Executar autorrecuperação e fechamento de dias passados pendentes
-    const recoveryResult = await autoRecoverPastDays(deviceId);
+    // 2. Executar autorrecuperação e fechamento diário individual para cada dispositivo
+    const results = [];
+    for (const deviceId of targetDeviceIds) {
+      try {
+        const recoveryResult = await autoRecoverPastDays(deviceId);
+        results.push({
+          device_id: deviceId,
+          ok: true,
+          recovery_summary: recoveryResult
+        });
+      } catch (devErr) {
+        console.error(`Erro no fechamento diário para ${deviceId}:`, devErr);
+        results.push({
+          device_id: deviceId,
+          ok: false,
+          error: devErr.message || String(devErr)
+        });
+      }
+    }
 
-    return res.status(200).json({
-      ok: true,
-      message: 'Fechamento diário automático e autorrecuperação concluídos com sucesso.',
-      device_id: deviceId,
+    const hasAnySuccess = results.some(r => r.ok);
+
+    return res.status(hasAnySuccess ? 200 : 500).json({
+      ok: hasAnySuccess,
+      message: 'Fechamento diário automático e autorrecuperação processados.',
+      total_devices: targetDeviceIds.length,
       today_local: todayStr,
       yesterday_local: yesterdayStr,
-      recovery_summary: recoveryResult
+      results: results
     });
 
   } catch (err) {
-    console.error('Erro no processamento do cron /api/cron/daily-finalize:', err);
+    console.error('Erro no processamento geral do cron /api/cron/daily-finalize:', err);
     return res.status(500).json({ ok: false, error: 'Erro interno durante o fechamento diário.' });
   }
 }
+

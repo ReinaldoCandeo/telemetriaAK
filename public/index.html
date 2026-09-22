@@ -43,7 +43,11 @@
       <div class="header-controls">
         <div class="device-pill">
           <span class="device-pill-label">DISPOSITIVO</span>
-          <span class="device-pill-id" id="header-device-id">HIDRO-001</span>
+          <select id="select-device" class="device-select" aria-label="Selecionar Dispositivo">
+            <option value="HIDRO-001" selected>Caixa da Santa — HIDRO-001</option>
+            <option value="HIDRO-002">Caixa do Guri — HIDRO-002</option>
+          </select>
+          <span class="device-pill-id hidden" id="header-device-id">HIDRO-001</span>
         </div>
         <div class="status-indicator status-offline" id="status-badge">
           <span class="status-dot"></span>

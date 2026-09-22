@@ -25,32 +25,52 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 2. Deletar todos os registros de telemetry_events no Supabase
+    // 2. Extração e validação estrita de device_id (obrigatório, sem fallback)
+    let deviceId = req.body?.device_id;
+
+    if (!deviceId && req.url) {
+      try {
+        const url = new URL(req.url, `https://${req.headers.host || 'localhost'}`);
+        deviceId = url.searchParams.get('device_id');
+      } catch (urlErr) {}
+    }
+
+    if (typeof deviceId !== 'string' || deviceId.trim() === '') {
+      return res.status(400).json({
+        ok: false,
+        error: 'device_id é obrigatório'
+      });
+    }
+
+    const cleanDeviceId = deviceId.trim();
+
+    // 3. Deletar registros de telemetry_events exclusivamente para o device_id informado
     const { error: deleteEventsError } = await supabase
       .from('telemetry_events')
       .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000');
+      .eq('device_id', cleanDeviceId);
 
     if (deleteEventsError) {
-      console.error('Erro ao deletar telemetry_events no Supabase:', deleteEventsError);
+      console.error(`Erro ao deletar telemetry_events para ${cleanDeviceId}:`, deleteEventsError);
       return res.status(500).json({ ok: false, error: 'Erro ao zerar histórico no banco de dados.' });
     }
 
-    // 2. Limpar qualquer sessão de calibração ativa nos dispositivos (preservando o fator liters_per_pulse)
+    // 4. Limpar sessão de calibração ativa exclusivamente para o device_id informado (preservando o cadastro e fator liters_per_pulse)
     const { error: updateDevicesError } = await supabase
       .from('devices')
       .update({ calibration_session: null })
-      .neq('device_id', '');
+      .eq('device_id', cleanDeviceId);
 
     if (updateDevicesError) {
-      console.error('Aviso ao resetar sessões ativas de calibração:', updateDevicesError);
+      console.error(`Aviso ao resetar sessão de calibração para ${cleanDeviceId}:`, updateDevicesError);
     }
 
-    console.log('[SUPABASE] Hard Reset executado com sucesso. telemetry_events zerados.');
+    console.log(`[SUPABASE] Hard Reset executado com sucesso para o dispositivo: ${cleanDeviceId}`);
 
     return res.status(200).json({
       ok: true,
-      message: 'Dados de telemetria e histórico resetados no Supabase com sucesso.'
+      device_id: cleanDeviceId,
+      message: `Dados de telemetria e histórico do dispositivo ${cleanDeviceId} resetados com sucesso.`
     });
 
   } catch (err) {
@@ -58,3 +78,4 @@ export default async function handler(req, res) {
     return res.status(500).json({ ok: false, error: 'Erro interno ao resetar dados.' });
   }
 }
+

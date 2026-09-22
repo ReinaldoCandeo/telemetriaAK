@@ -482,6 +482,17 @@ if (btnLogout) {
   });
 }
 
+// ==========================================================================
+// ESTADO CENTRAL MULTI-DISPOSITIVO (MULTIDEVICE-FRONTEND-01)
+// ==========================================================================
+let selectedDeviceId = 'HIDRO-001';
+let currentRequestGeneration = 0;
+
+const DEVICE_NAMES = {
+  'HIDRO-001': 'Caixa da Santa',
+  'HIDRO-002': 'Caixa do Guri'
+};
+
 let previousPulseTotal = null;
 let toastTimeout = null;
 
@@ -492,6 +503,7 @@ const pulseToast = document.getElementById('pulse-toast');
 const statusBadge = document.getElementById('status-badge');
 const statusText = document.getElementById('status-text');
 const headerDeviceId = document.getElementById('header-device-id');
+const selectDevice = document.getElementById('select-device');
 
 const valPulseTotal = document.getElementById('val-pulse-total');
 const valPulseDelta = document.getElementById('val-pulse-delta');
@@ -553,11 +565,147 @@ const dailyBarChartContainer = document.getElementById('daily-bar-chart-containe
 let systemTotalsCache = null;
 let dailySummaryCache = null;
 
-async function fetchSystemSummary() {
+// Listener para o Seletor de Dispositivo
+if (selectDevice) {
+  selectDevice.value = selectedDeviceId;
+  selectDevice.addEventListener('change', (e) => {
+    const newDev = e.target.value;
+    if (newDev && newDev !== selectedDeviceId) {
+      onDeviceChange(newDev);
+    }
+  });
+}
+
+function onDeviceChange(newDev) {
+  selectedDeviceId = newDev;
+  currentRequestGeneration++;
+  const thisGen = currentRequestGeneration;
+
+  if (headerDeviceId) {
+    headerDeviceId.textContent = selectedDeviceId;
+  }
+  if (valDeviceId) {
+    valDeviceId.textContent = selectedDeviceId;
+  }
+  if (selectDevice && selectDevice.value !== selectedDeviceId) {
+    selectDevice.value = selectedDeviceId;
+  }
+
+  // 1. Limpar caches locais do dispositivo anterior
+  systemTotalsCache = null;
+  dailySummaryCache = null;
+  previousPulseTotal = null;
+  currentLastPulseAt = null;
+
+  // 2. Limpar visualmente os dados dos cards para evitar que dados antigos permaneçam na tela
+  resetDashboardForNewDevice();
+
+  // 3. Disparar carga imediata dos dados do novo dispositivo
+  loadAllDashboardData(thisGen);
+}
+
+function resetDashboardForNewDevice() {
+  updateUI(null);
+
+  if (chartVolumeEmpty && chartVolumeSvg) {
+    chartVolumeEmpty.classList.remove('hidden');
+    chartVolumeSvg.classList.add('hidden');
+  }
+  if (chartPulsesEmpty && chartPulsesSvg) {
+    chartPulsesEmpty.classList.remove('hidden');
+    chartPulsesSvg.classList.add('hidden');
+  }
+  if (chartDailyEmpty) {
+    chartDailyEmpty.classList.remove('hidden');
+  }
+  if (dailyBarChartContainer) {
+    dailyBarChartContainer.innerHTML = '';
+  }
+
+  const flowChartSvg = document.getElementById('flow-chart-svg');
+  const flowChartEmpty = document.getElementById('flow-chart-empty');
+  if (flowChartSvg) flowChartSvg.classList.add('hidden');
+  if (flowChartEmpty) flowChartEmpty.classList.remove('hidden');
+
+  const valFlowRecent = document.getElementById('val-flow-recent');
+  const valFlowM3h = document.getElementById('val-flow-m3h');
+  const valFlowRecentSub = document.getElementById('val-flow-recent-sub');
+  const valFlowBadge = document.getElementById('val-flow-badge');
+  const valFlowAvg = document.getElementById('val-flow-avg');
+  const valFlowMax = document.getElementById('val-flow-max');
+  const valLastPulseTime = document.getElementById('val-last-pulse-time');
+  const valLastPulseDate = document.getElementById('val-last-pulse-date');
+  const valLastPulseRelative = document.getElementById('val-last-pulse-relative');
+  const flowCalibNotice = document.getElementById('flow-calib-notice');
+
+  if (flowCalibNotice) flowCalibNotice.classList.add('hidden');
+  if (valFlowRecent) valFlowRecent.innerHTML = `<span style="font-size: 1.5rem; color: #38bdf8;">AGUARDANDO DADOS</span>`;
+  if (valFlowM3h) valFlowM3h.textContent = '-- m³/h';
+  if (valFlowRecentSub) valFlowRecentSub.textContent = 'Aguardando telemetria do dispositivo selecionado.';
+  if (valFlowBadge) valFlowBadge.textContent = 'Aguardando Dados';
+  if (valFlowAvg) valFlowAvg.innerHTML = `-- <span class="unit">L/min</span>`;
+  if (valFlowMax) valFlowMax.innerHTML = `-- <span class="unit">L/min</span>`;
+  if (valLastPulseTime) valLastPulseTime.textContent = '--:--:--';
+  if (valLastPulseDate) valLastPulseDate.textContent = '--/--/----';
+  if (valLastPulseRelative) valLastPulseRelative.textContent = 'Nenhum pulso registrado';
+  if (valCardLastPulseTime) valCardLastPulseTime.textContent = '--:--:--';
+
+  showDailyUnavailable();
+
+  const historyTableBody = document.getElementById('history-table-body');
+  const historyEmptyState = document.getElementById('history-empty-state');
+  const histCount = document.getElementById('hist-count');
+  const histPulseSum = document.getElementById('hist-pulse-sum');
+  const histLastTime = document.getElementById('hist-last-time');
+  const histLastDate = document.getElementById('hist-last-date');
+
+  if (historyTableBody) historyTableBody.innerHTML = '';
+  if (historyEmptyState) historyEmptyState.classList.remove('hidden');
+  if (histCount) histCount.textContent = '0';
+  if (histPulseSum) histPulseSum.textContent = '0';
+  if (histLastTime) histLastTime.textContent = '--:--:--';
+  if (histLastDate) histLastDate.textContent = '--/--/----';
+
+  const sessionsTableBody = document.getElementById('sessions-table-body');
+  const sessionsEmptyState = document.getElementById('sessions-empty-state');
+  const sessTotalCount = document.getElementById('sess-total-count');
+  const sessTotalDuration = document.getElementById('sess-total-duration');
+  const sessTotalVolume = document.getElementById('sess-total-volume');
+
+  if (sessionsTableBody) sessionsTableBody.innerHTML = '';
+  if (sessionsEmptyState) sessionsEmptyState.classList.remove('hidden');
+  if (sessTotalCount) sessTotalCount.textContent = '0';
+  if (sessTotalDuration) sessTotalDuration.textContent = '0s';
+  if (sessTotalVolume) sessTotalVolume.textContent = '-- m³';
+  if (valPassageStatus) valPassageStatus.innerHTML = `<span style="color: #64748b;">SEM FLUXO</span>`;
+  if (valPassageSub) valPassageSub.textContent = 'Nenhuma sessão recente';
+  if (valPassageBadge) {
+    valPassageBadge.className = 'scada-badge badge-neutral';
+    valPassageBadge.textContent = 'INATIVO';
+  }
+}
+
+async function loadAllDashboardData(gen) {
+  const reqGen = gen !== undefined ? gen : currentRequestGeneration;
+  await Promise.allSettled([
+    fetchLatestTelemetry(reqGen),
+    fetchTelemetryHistory(reqGen),
+    fetchFlowSummary(reqGen),
+    fetchFlowSessions(reqGen),
+    fetchFlowChart24h(reqGen),
+    fetchDailySummary(reqGen)
+  ]);
+}
+
+async function fetchSystemSummary(expectedGen) {
+  const reqGen = expectedGen !== undefined ? expectedGen : currentRequestGeneration;
+  const devId = selectedDeviceId;
   try {
-    const response = await adminFetch('/api/telemetry/system-summary', { cache: 'no-store' });
+    const response = await adminFetch(`/api/telemetry/system-summary?device_id=${encodeURIComponent(devId)}`, { cache: 'no-store' });
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (!response.ok) return;
     const result = await response.json();
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (result.ok) {
       systemTotalsCache = result;
     }
@@ -710,25 +858,33 @@ function updateUI(telemetry) {
   }
 }
 
-async function fetchLatestTelemetry() {
+async function fetchLatestTelemetry(expectedGen) {
+  const reqGen = expectedGen !== undefined ? expectedGen : currentRequestGeneration;
+  const devId = selectedDeviceId;
   try {
     const [latestRes, summaryRes] = await Promise.all([
-      adminFetch('/api/telemetry/latest', { cache: 'no-store' }),
-      adminFetch('/api/telemetry/system-summary', { cache: 'no-store' })
+      adminFetch(`/api/telemetry/latest?device_id=${encodeURIComponent(devId)}`, { cache: 'no-store' }),
+      adminFetch(`/api/telemetry/system-summary?device_id=${encodeURIComponent(devId)}`, { cache: 'no-store' })
     ]);
+
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
 
     if (summaryRes.ok) {
       const summaryJson = await summaryRes.json();
-      if (summaryJson.ok) {
+      if (summaryJson.ok && reqGen === currentRequestGeneration && devId === selectedDeviceId) {
         systemTotalsCache = summaryJson;
       }
     }
 
     if (!latestRes.ok) {
-      updateUI(null);
+      if (reqGen === currentRequestGeneration && devId === selectedDeviceId) {
+        updateUI(null);
+      }
       return;
     }
     const result = await latestRes.json();
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
+
     if (result.ok && result.data) {
       updateUI(result.data);
     } else {
@@ -926,11 +1082,15 @@ function updateRelativeTimeDisplay() {
   }
 }
 
-async function fetchFlowSummary() {
+async function fetchFlowSummary(expectedGen) {
+  const reqGen = expectedGen !== undefined ? expectedGen : currentRequestGeneration;
+  const devId = selectedDeviceId;
   try {
-    const response = await adminFetch('/api/telemetry/flow-summary', { cache: 'no-store' });
+    const response = await adminFetch(`/api/telemetry/flow-summary?device_id=${encodeURIComponent(devId)}`, { cache: 'no-store' });
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (!response.ok) return;
     const result = await response.json();
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (!result.ok) return;
 
     const { calibration_status, liters_per_pulse, latest_flow_lpm, latest_flow_m3h, average_flow_lpm, max_flow_lpm, last_pulse_at } = result;
@@ -996,11 +1156,15 @@ async function fetchFlowSummary() {
   }
 }
 
-async function fetchFlowChart24h() {
+async function fetchFlowChart24h(expectedGen) {
+  const reqGen = expectedGen !== undefined ? expectedGen : currentRequestGeneration;
+  const devId = selectedDeviceId;
   try {
-    const response = await adminFetch('/api/telemetry/flow-chart-24h', { cache: 'no-store' });
+    const response = await adminFetch(`/api/telemetry/flow-chart-24h?device_id=${encodeURIComponent(devId)}`, { cache: 'no-store' });
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (!response.ok) return;
     const result = await response.json();
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (!result.ok) return;
     renderFlowChart(result.data || []);
   } catch (err) {
@@ -1662,11 +1826,15 @@ function updateSessionsUI(sessionsList, summaryData) {
   }
 }
 
-async function fetchFlowSessions() {
+async function fetchFlowSessions(expectedGen) {
+  const reqGen = expectedGen !== undefined ? expectedGen : currentRequestGeneration;
+  const devId = selectedDeviceId;
   try {
-    const response = await adminFetch('/api/telemetry/flow-sessions?limit=50', { cache: 'no-store' });
+    const response = await adminFetch(`/api/telemetry/flow-sessions?limit=50&device_id=${encodeURIComponent(devId)}`, { cache: 'no-store' });
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (!response.ok) return;
     const result = await response.json();
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (!result.ok) return;
 
     const listData = Array.isArray(result.data) ? result.data : [];
@@ -1693,14 +1861,18 @@ function showDailyUnavailable() {
   if (dailyBarChartContainer) dailyBarChartContainer.innerHTML = '';
 }
 
-async function fetchDailySummary() {
+async function fetchDailySummary(expectedGen) {
+  const reqGen = expectedGen !== undefined ? expectedGen : currentRequestGeneration;
+  const devId = selectedDeviceId;
   try {
-    const response = await adminFetch('/api/telemetry/daily-summary?days=7', { cache: 'no-store' });
+    const response = await adminFetch(`/api/telemetry/daily-summary?days=7&device_id=${encodeURIComponent(devId)}`, { cache: 'no-store' });
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (!response.ok) {
       showDailyUnavailable();
       return;
     }
     const result = await response.json();
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (result.ok && Array.isArray(result.items)) {
       dailySummaryCache = result.items;
       updateDailyUI(result.items);
@@ -1711,7 +1883,9 @@ async function fetchDailySummary() {
     if (err.message !== 'Sessão expirada.') {
       console.error('Erro ao buscar resumo diário:', err);
     }
-    showDailyUnavailable();
+    if (reqGen === currentRequestGeneration && devId === selectedDeviceId) {
+      showDailyUnavailable();
+    }
   }
 }
 
@@ -2049,11 +2223,15 @@ const calibErrorMessage = document.getElementById('calib-error-message');
 
 let currentPreviewCalculation = null;
 
-async function fetchCalibrationSession() {
+async function fetchCalibrationSession(expectedGen) {
+  const reqGen = expectedGen !== undefined ? expectedGen : currentRequestGeneration;
+  const devId = selectedDeviceId;
   try {
-    const response = await adminFetch('/api/config/calibration/session', { cache: 'no-store' });
+    const response = await adminFetch(`/api/config/calibration/session?device_id=${encodeURIComponent(devId)}`, { cache: 'no-store' });
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (!response.ok) return;
     const result = await response.json();
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (result.ok) {
       updateCalibrationSessionUI(result.calibration_session);
     }
@@ -2123,7 +2301,7 @@ if (btnStartCalibration) {
     btnStartCalibration.disabled = true;
     showCalibError(null);
     try {
-      const devId = (headerDeviceId ? headerDeviceId.textContent.trim() : 'HIDRO-001') || 'HIDRO-001';
+      const devId = selectedDeviceId;
       const res = await adminFetch('/api/config/calibration/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2158,7 +2336,7 @@ if (btnCalculateCalibration && inputKnownVolume) {
 
     btnCalculateCalibration.disabled = true;
     try {
-      const devId = (headerDeviceId ? headerDeviceId.textContent.trim() : 'HIDRO-001') || 'HIDRO-001';
+      const devId = selectedDeviceId;
       const res = await adminFetch('/api/config/calibration/calculate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2194,7 +2372,7 @@ if (btnConfirmCalibration) {
     btnConfirmCalibration.disabled = true;
 
     try {
-      const devId = (headerDeviceId ? headerDeviceId.textContent.trim() : 'HIDRO-001') || 'HIDRO-001';
+      const devId = selectedDeviceId;
       const res = await adminFetch('/api/config/calibration/finish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2229,7 +2407,7 @@ if (btnCancelCalibration) {
     btnCancelCalibration.disabled = true;
     showCalibError(null);
     try {
-      const devId = (headerDeviceId ? headerDeviceId.textContent.trim() : 'HIDRO-001') || 'HIDRO-001';
+      const devId = selectedDeviceId;
       await adminFetch('/api/config/calibration/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2257,13 +2435,17 @@ if (btnBackCalibration) {
   });
 }
 
-async function fetchTelemetryHistory() {
+async function fetchTelemetryHistory(expectedGen) {
+  const reqGen = expectedGen !== undefined ? expectedGen : currentRequestGeneration;
+  const devId = selectedDeviceId;
   try {
-    const response = await adminFetch('/api/telemetry/history?limit=100', { cache: 'no-store' });
-    fetchFlowSummary();
-    fetchCalibrationSession();
+    const response = await adminFetch(`/api/telemetry/history?limit=100&device_id=${encodeURIComponent(devId)}`, { cache: 'no-store' });
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
+    fetchFlowSummary(reqGen);
+    fetchCalibrationSession(reqGen);
     if (!response.ok) return;
     const result = await response.json();
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (result.ok && Array.isArray(result.data)) {
       updateHistoryUI(result.data);
     }
@@ -2282,7 +2464,7 @@ if (btnSaveCalibration && inputLitersPerPulse) {
       return;
     }
 
-    const devId = (headerDeviceId ? headerDeviceId.textContent.trim() : 'HIDRO-001') || 'HIDRO-001';
+    const devId = selectedDeviceId;
 
     try {
       const response = await adminFetch('/api/config/calibration', {
@@ -2310,12 +2492,13 @@ if (btnSaveCalibration && inputLitersPerPulse) {
   });
 }
 
-// Hard Reset (Zerar Banco de Dados e Histórico)
+// Hard Reset (Zerar Banco de Dados e Histórico do Dispositivo Selecionado)
 const btnFactoryReset = document.getElementById('btn-factory-reset');
 if (btnFactoryReset) {
   btnFactoryReset.addEventListener('click', async () => {
+    const devName = DEVICE_NAMES[selectedDeviceId] || selectedDeviceId;
     const confirmReset = window.confirm(
-      '⚠️ ATENÇÃO: Isso apagará todo o histórico de pulsos, sessões de vazão e a telemetria gravada no servidor.\n\nOs fatores de calibração salvos serão preservados.\n\nDeseja continuar com o Hard Reset?'
+      `⚠️ ATENÇÃO: Isso apagará o histórico de pulsos, sessões de vazão e a telemetria do dispositivo ${selectedDeviceId} (${devName}).\n\nOs fatores de calibração salvos e outros dispositivos serão preservados.\n\nDeseja continuar com o Reset de ${devName}?`
     );
 
     if (!confirmReset) return;
@@ -2324,21 +2507,22 @@ if (btnFactoryReset) {
     try {
       const response = await adminFetch('/api/system/reset', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: selectedDeviceId })
       });
 
       const result = await response.json();
       if (result.ok) {
-        alert('✅ Sistema resetado com sucesso! A página será recarregada.');
-        window.location.reload();
+        alert(`✅ Dispositivo ${devName} (${selectedDeviceId}) resetado com sucesso!`);
+        onDeviceChange(selectedDeviceId);
       } else {
-        alert('Erro ao resetar sistema: ' + (result.error || 'Erro desconhecido'));
+        alert('Erro ao resetar dispositivo: ' + (result.error || 'Erro desconhecido'));
         btnFactoryReset.disabled = false;
       }
     } catch (err) {
       if (err.message !== 'Sessão expirada.' && err.message !== 'Você não possui permissão administrativa para esta ação.') {
         console.error('Erro ao chamar /api/system/reset:', err);
-        alert('Erro de conexão ao tentar resetar o sistema.');
+        alert('Erro de conexão ao tentar resetar o dispositivo.');
       }
       btnFactoryReset.disabled = false;
     }
