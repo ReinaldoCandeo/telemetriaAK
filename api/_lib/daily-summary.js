@@ -92,9 +92,8 @@ export async function calculateDailySummary(deviceId, localDateStr) {
     .eq('device_id', deviceId)
     .maybeSingle();
 
-  const litersPerPulse = (devData?.calibration_status === 'calibrated' && typeof devData?.liters_per_pulse === 'number')
-    ? devData.liters_per_pulse
-    : 101.63;
+  const isCalibrated = devData?.calibration_status === 'calibrated' && typeof devData?.liters_per_pulse === 'number' && devData.liters_per_pulse > 0;
+  const litersPerPulse = isCalibrated ? devData.liters_per_pulse : null;
 
   // 2. Paginar todos os eventos pulse daquele dia (sem teto silencioso)
   let page = 0;
@@ -193,8 +192,8 @@ export async function calculateDailySummary(deviceId, localDateStr) {
   }
 
   const pulseEventsCount = allRows.length;
-  const volumeLiters = Number((sumPulses * litersPerPulse).toFixed(2));
-  const volumeM3 = Number((volumeLiters / 1000).toFixed(3));
+  const volumeLiters = isCalibrated ? Number((sumPulses * litersPerPulse).toFixed(2)) : null;
+  const volumeM3 = volumeLiters !== null ? Number((volumeLiters / 1000).toFixed(3)) : null;
   const firstPulseAt = allRows[0].received_at;
   const lastPulseAt = allRows[allRows.length - 1].received_at;
 
@@ -213,11 +212,13 @@ export async function calculateDailySummary(deviceId, localDateStr) {
 
       // Se o intervalo for positivo e até 90s (limiar de sessão de fluxo)
       if (dtSec > 0 && dtSec <= 90) {
-        const flowLpm = (litersPerPulse / dtSec) * 60;
-        if (Number.isFinite(flowLpm) && flowLpm > 0) {
-          validFlowSamples.push(flowLpm);
-          flowDurationSec += dtSec;
+        if (isCalibrated) {
+          const flowLpm = (litersPerPulse / dtSec) * 60;
+          if (Number.isFinite(flowLpm) && flowLpm > 0) {
+            validFlowSamples.push(flowLpm);
+          }
         }
+        flowDurationSec += dtSec;
       }
     }
   }
@@ -231,10 +232,10 @@ export async function calculateDailySummary(deviceId, localDateStr) {
     if (val > maxFlow) maxFlow = val;
   }
 
-  const averageFlowLpm = samplesCount > 0
+  const averageFlowLpm = (isCalibrated && samplesCount > 0)
     ? Number((sumFlow / samplesCount).toFixed(2))
     : null;
-  const maxFlowLpm = samplesCount > 0
+  const maxFlowLpm = (isCalibrated && samplesCount > 0)
     ? Number(maxFlow.toFixed(2))
     : null;
 

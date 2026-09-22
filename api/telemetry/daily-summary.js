@@ -22,8 +22,12 @@ export default async function handler(req, res) {
   if (!auth) return;
 
   try {
-    const url = new URL(req.url, `https://${req.headers.host || 'localhost'}`);
-    const deviceId = url.searchParams.get('device_id') || 'HIDRO-001';
+    const rawDeviceId = url.searchParams.get('device_id');
+    const deviceId = typeof rawDeviceId === 'string' ? rawDeviceId.trim() : '';
+
+    if (!deviceId) {
+      return res.status(400).json({ ok: false, error: 'device_id é obrigatório' });
+    }
     const daysParam = url.searchParams.get('days') || '7';
 
     const days = parseInt(daysParam, 10);

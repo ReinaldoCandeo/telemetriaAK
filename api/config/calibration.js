@@ -22,7 +22,12 @@ export default async function handler(req, res) {
       const authResult = await requireAdminAuth(req, res);
       if (!authResult) return;
 
-      const deviceId = url.searchParams.get('device_id') || 'HIDRO-001';
+      const rawDeviceId = url.searchParams.get('device_id');
+      const deviceId = typeof rawDeviceId === 'string' ? rawDeviceId.trim() : '';
+
+      if (!deviceId) {
+        return res.status(400).json({ ok: false, error: 'device_id é obrigatório' });
+      }
       const { data: dev, error } = await supabase
         .from('devices')
         .select('*')
@@ -50,7 +55,12 @@ export default async function handler(req, res) {
       }
 
       const payload = req.body || {};
-      const deviceId = (payload.device_id || 'HIDRO-001').trim();
+      const rawDeviceId = payload?.device_id;
+      const deviceId = typeof rawDeviceId === 'string' ? rawDeviceId.trim() : '';
+
+      if (!deviceId) {
+        return res.status(400).json({ ok: false, error: 'device_id é obrigatório' });
+      }
       const litersPerPulse = parseFloat(payload.liters_per_pulse);
 
       if (isNaN(litersPerPulse) || litersPerPulse <= 0) {
