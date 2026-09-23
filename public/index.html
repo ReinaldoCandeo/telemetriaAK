@@ -394,6 +394,95 @@
             </div>
           </details>
 
+          <!-- GAVETA: DIAGNÓSTICO DE INTERRUPÇÕES -->
+          <details class="scada-accordion" id="accordion-interruptions">
+            <summary class="scada-accordion-summary">
+              <div class="summary-left">
+                <span class="summary-icon">⚠️</span>
+                <div>
+                  <span class="summary-title">Diagnóstico de Interrupções</span>
+                  <span class="summary-desc">Pausas de pulsos correlacionadas com a telemetria do dispositivo</span>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <span class="scada-badge badge-slate" id="val-interruption-header-badge">DIAGNÓSTICO</span>
+                <span class="summary-arrow">▼</span>
+              </div>
+            </summary>
+            <div class="scada-accordion-content">
+
+              <!-- Topo: 3 Mini Indicadores -->
+              <div class="scada-mini-kpi-grid">
+                <div class="scada-mini-card">
+                  <span class="mini-label">INTERRUPÇÕES HOJE</span>
+                  <div class="mini-val font-mono" id="val-int-count">--</div>
+                  <span class="mini-sub">Pausas de pulso &gt; 90s</span>
+                </div>
+
+                <div class="scada-mini-card">
+                  <span class="mini-label">MAIOR JANELA SEM PULSO</span>
+                  <div class="mini-val font-mono text-blue" id="val-int-longest">--</div>
+                  <span class="mini-sub">Maior pausa registrada hoje</span>
+                </div>
+
+                <div class="scada-mini-card">
+                  <span class="mini-label">ESTADO ATUAL</span>
+                  <div class="mini-val" id="val-int-state" style="font-size: 1rem;">--</div>
+                  <span class="mini-sub" id="val-int-state-sub">Intervalo desde o último pulso</span>
+                </div>
+              </div>
+
+              <!-- Card da Última Interrupção -->
+              <div class="scada-session-hero" id="card-interruption-hero">
+                <div class="session-hero-header">
+                  <span class="session-hero-badge-title">ÚLTIMA INTERRUPÇÃO</span>
+                  <span class="scada-badge badge-slate" id="val-int-hero-badge">Diagnóstico</span>
+                </div>
+                <div class="session-hero-title" id="val-int-hero-title">NENHUMA INTERRUPÇÃO DETECTADA</div>
+                <p class="session-hero-sub" id="val-int-hero-sub">O dispositivo mantém fluxo contínuo ou sem pausas superiores a 90 segundos hoje.</p>
+
+                <div class="session-metrics-grid" id="int-details-grid">
+                  <div class="session-metric">
+                    <span class="sm-label">INÍCIO DA PAUSA</span>
+                    <span class="sm-val font-mono" id="int-val-started">--:--:--</span>
+                  </div>
+                  <div class="session-metric">
+                    <span class="sm-label">RETOMADA DO FLUXO</span>
+                    <span class="sm-val font-mono" id="int-val-ended">--:--:--</span>
+                  </div>
+                  <div class="session-metric">
+                    <span class="sm-label">DURAÇÃO DA PAUSA</span>
+                    <span class="sm-val font-mono text-blue" id="int-val-duration">--</span>
+                  </div>
+                  <div class="session-metric">
+                    <span class="sm-label">STATUS DA JANELA</span>
+                    <span class="sm-val" id="int-val-status">--</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Bloco: Últimas Interrupções -->
+              <div class="scada-recent-interruptions-block">
+                <div class="subchart-header" style="margin-bottom: 0.75rem;">
+                  <div>
+                    <h4 class="subchart-title">ÚLTIMAS INTERRUPÇÕES (HOJE)</h4>
+                    <p class="subchart-subtitle">Histórico recente de pausas de pulso e status de comunicação do ESP</p>
+                  </div>
+                </div>
+
+                <div id="int-empty-state" class="chart-empty">
+                  <span class="empty-icon">✅</span>
+                  <span id="int-empty-msg">Nenhuma interrupção relevante detectada hoje.</span>
+                </div>
+
+                <div id="int-list-container" class="scada-interruptions-list hidden">
+                  <!-- Linhas injetadas via JavaScript -->
+                </div>
+              </div>
+
+            </div>
+          </details>
+
           <!-- GAVETA 2: HISTÓRICO DE PASSAGENS (SESSÕES DE FLUXO) -->
           <details class="scada-accordion">
             <summary class="scada-accordion-summary">

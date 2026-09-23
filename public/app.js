@@ -562,6 +562,26 @@ const chartDailyWrapper = document.getElementById('chart-daily-wrapper');
 const chartDailyEmpty = document.getElementById('chart-daily-empty');
 const dailyBarChartContainer = document.getElementById('daily-bar-chart-container');
 
+// DOM Elements para Diagnóstico de Interrupções
+const accordionInterruptions = document.getElementById('accordion-interruptions');
+const valInterruptionHeaderBadge = document.getElementById('val-interruption-header-badge');
+const valIntCount = document.getElementById('val-int-count');
+const valIntLongest = document.getElementById('val-int-longest');
+const valIntState = document.getElementById('val-int-state');
+const valIntStateSub = document.getElementById('val-int-state-sub');
+const valIntHeroBadge = document.getElementById('val-int-hero-badge');
+const valIntHeroTitle = document.getElementById('val-int-hero-title');
+const valIntHeroSub = document.getElementById('val-int-hero-sub');
+const intValStarted = document.getElementById('int-val-started');
+const intValEnded = document.getElementById('int-val-ended');
+const intValDuration = document.getElementById('int-val-duration');
+const intValStatus = document.getElementById('int-val-status');
+const intEmptyState = document.getElementById('int-empty-state');
+const intEmptyMsg = document.getElementById('int-empty-msg');
+const intListContainer = document.getElementById('int-list-container');
+
+let interruptionsInterval = null;
+
 let systemTotalsCache = null;
 let dailySummaryCache = null;
 
@@ -600,7 +620,12 @@ function onDeviceChange(newDev) {
   // 2. Limpar visualmente os dados dos cards para evitar que dados antigos permaneçam na tela
   resetDashboardForNewDevice();
 
-  // 3. Disparar carga imediata dos dados do novo dispositivo
+  // 3. Se a sanfona de interrupções estiver aberta, buscar imediatamente para o novo dispositivo
+  if (accordionInterruptions && accordionInterruptions.open) {
+    fetchInterruptions(thisGen);
+  }
+
+  // 4. Disparar carga imediata dos dados do novo dispositivo
   loadAllDashboardData(thisGen);
 }
 
@@ -683,6 +708,8 @@ function resetDashboardForNewDevice() {
     valPassageBadge.className = 'scada-badge badge-neutral';
     valPassageBadge.textContent = 'INATIVO';
   }
+
+  resetInterruptionsUI();
 }
 
 async function loadAllDashboardData(gen) {
@@ -2297,6 +2324,265 @@ function renderDailyBarChart(items) {
   });
 }
 
+// ==========================================================================
+// DIAGNÓSTICO DE INTERRUPÇÕES (DIAGNOSTICO-INTERRUPCOES-IMPLEMENTACAO-01)
+// ==========================================================================
+
+function formatDurationSeconds(seconds) {
+  if (seconds === null || seconds === undefined || isNaN(seconds)) return '--';
+  const s = Math.round(seconds);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const remS = s % 60;
+  if (m < 60) return remS > 0 ? `${m}m ${remS}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const remM = m % 60;
+  return remM > 0 ? `${h}h ${remM}m` : `${h}h`;
+}
+
+function resetInterruptionsUI() {
+  if (valInterruptionHeaderBadge) {
+    valInterruptionHeaderBadge.className = 'scada-badge badge-slate';
+    valInterruptionHeaderBadge.textContent = 'DIAGNÓSTICO';
+  }
+  if (valIntCount) valIntCount.textContent = '--';
+  if (valIntLongest) valIntLongest.textContent = '--';
+  if (valIntState) {
+    valIntState.innerHTML = '<span style="color: #94a3b8;">--</span>';
+  }
+  if (valIntStateSub) valIntStateSub.textContent = 'Intervalo desde o último pulso';
+  if (valIntHeroBadge) {
+    valIntHeroBadge.className = 'scada-badge badge-slate';
+    valIntHeroBadge.textContent = 'Diagnóstico';
+  }
+  if (valIntHeroTitle) valIntHeroTitle.textContent = 'NENHUMA INTERRUPÇÃO DETECTADA';
+  if (valIntHeroSub) valIntHeroSub.textContent = 'Aguardando diagnóstico...';
+  if (intValStarted) intValStarted.textContent = '--:--:--';
+  if (intValEnded) intValEnded.textContent = '--:--:--';
+  if (intValDuration) intValDuration.textContent = '--';
+  if (intValStatus) intValStatus.textContent = '--';
+  if (intEmptyState) intEmptyState.classList.remove('hidden');
+  if (intEmptyMsg) intEmptyMsg.textContent = 'Analisando interrupções...';
+  if (intListContainer) {
+    intListContainer.classList.add('hidden');
+    intListContainer.innerHTML = '';
+  }
+}
+
+function updateInterruptionsUI(data) {
+  if (!data || !data.ok) {
+    if (intEmptyState) intEmptyState.classList.remove('hidden');
+    if (intEmptyMsg) intEmptyMsg.textContent = 'Diagnóstico temporariamente indisponível.';
+    if (intListContainer) intListContainer.classList.add('hidden');
+    return;
+  }
+
+  const summary = data.summary || {};
+  const countToday = summary.interruptions_today || 0;
+
+  // 1. Header Badge
+  if (valInterruptionHeaderBadge) {
+    if (countToday === 0) {
+      valInterruptionHeaderBadge.className = 'scada-badge badge-green';
+      valInterruptionHeaderBadge.textContent = 'SEM INTERRUPÇÕES';
+    } else if (countToday === 1) {
+      valInterruptionHeaderBadge.className = 'scada-badge badge-amber';
+      valInterruptionHeaderBadge.textContent = '1 HOJE';
+    } else {
+      valInterruptionHeaderBadge.className = 'scada-badge badge-amber';
+      valInterruptionHeaderBadge.textContent = `${countToday} HOJE`;
+    }
+  }
+
+  // 2. Mini Indicadores
+  if (valIntCount) {
+    valIntCount.textContent = countToday;
+  }
+  if (valIntLongest) {
+    valIntLongest.textContent = summary.longest_gap_seconds > 0 ? formatDurationSeconds(summary.longest_gap_seconds) : 'Nenhuma';
+  }
+  if (valIntState) {
+    if (summary.current_state === 'flow_active') {
+      valIntState.innerHTML = '<span style="color: #22c55e;">FLUXO ATIVO</span>';
+      if (valIntStateSub) valIntStateSub.textContent = `Último pulso há ${formatDurationSeconds(summary.current_gap_seconds)}`;
+    } else if (summary.current_state === 'interrupted') {
+      valIntState.innerHTML = '<span style="color: #f59e0b;">SEM PULSOS</span>';
+      if (valIntStateSub) valIntStateSub.textContent = `Pausa aberta há ${formatDurationSeconds(summary.current_gap_seconds)}`;
+    } else if (summary.current_state === 'no_pulses_today') {
+      valIntState.innerHTML = '<span style="color: #94a3b8;">SEM PULSOS HOJE</span>';
+      if (valIntStateSub) valIntStateSub.textContent = 'Nenhum pulso registrado hoje';
+    } else if (summary.current_state === 'no_pulse_history') {
+      valIntState.innerHTML = '<span style="color: #94a3b8;">SEM HISTÓRICO</span>';
+      if (valIntStateSub) valIntStateSub.textContent = 'Nenhum pulso no histórico';
+    } else {
+      valIntState.innerHTML = '<span style="color: #94a3b8;">AGUARDANDO</span>';
+      if (valIntStateSub) valIntStateSub.textContent = '--';
+    }
+  }
+
+  // 3. Hero Card (Última Interrupção)
+  const latest = data.latest_interruption;
+  if (!latest) {
+    if (valIntHeroBadge) {
+      valIntHeroBadge.className = 'scada-badge badge-green';
+      valIntHeroBadge.textContent = 'ESTÁVEL';
+    }
+    if (valIntHeroTitle) valIntHeroTitle.textContent = 'NENHUMA INTERRUPÇÃO HOJE';
+    if (valIntHeroSub) {
+      if (summary.current_state === 'no_pulses_today') {
+        valIntHeroSub.textContent = 'Sem pulsos suficientes hoje para determinar interrupções.';
+      } else if (summary.current_state === 'no_pulse_history') {
+        valIntHeroSub.textContent = 'Sem histórico de pulsos suficiente para análise.';
+      } else {
+        valIntHeroSub.textContent = 'Nenhuma interrupção relevante (> 90s) detectada hoje.';
+      }
+    }
+    if (intValStarted) intValStarted.textContent = '--:--:--';
+    if (intValEnded) intValEnded.textContent = '--:--:--';
+    if (intValDuration) intValDuration.textContent = '--';
+    if (intValStatus) intValStatus.textContent = '--';
+  } else {
+    let badgeClass = 'badge-amber';
+    if (latest.classification === 'counter_reset') {
+      badgeClass = 'badge-blue';
+    } else if (latest.classification === 'telemetry_unavailable') {
+      badgeClass = 'badge-coral';
+    }
+
+    if (valIntHeroBadge) {
+      valIntHeroBadge.className = `scada-badge ${badgeClass}`;
+      valIntHeroBadge.textContent = latest.label || 'INTERRUPÇÃO';
+    }
+    if (valIntHeroTitle) {
+      valIntHeroTitle.textContent = latest.label || 'INTERRUPÇÃO';
+    }
+    if (valIntHeroSub) {
+      valIntHeroSub.textContent = latest.message || '';
+    }
+
+    if (intValStarted) {
+      intValStarted.textContent = latest.start_at
+        ? new Date(latest.start_at).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+        : '--:--:--';
+    }
+    if (intValEnded) {
+      intValEnded.textContent = latest.end_at
+        ? new Date(latest.end_at).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+        : (latest.status === 'open' ? 'EM ANDAMENTO' : '--:--:--');
+    }
+    if (intValDuration) {
+      intValDuration.textContent = formatDurationSeconds(latest.duration_seconds);
+    }
+    if (intValStatus) {
+      intValStatus.innerHTML = latest.status === 'open'
+        ? '<span style="color: #f59e0b; font-weight: 600;">ABERTA</span>'
+        : '<span style="color: #94a3b8;">CONCLUÍDA</span>';
+    }
+  }
+
+  // 4. Lista das Últimas Interrupções (máx 5)
+  const list = Array.isArray(data.interruptions) ? data.interruptions : [];
+  if (list.length === 0) {
+    if (intEmptyState) intEmptyState.classList.remove('hidden');
+    if (intListContainer) intListContainer.classList.add('hidden');
+    if (intEmptyMsg) {
+      if (summary.current_state === 'no_pulses_today') {
+        intEmptyMsg.textContent = 'Sem pulsos suficientes hoje para determinar interrupções.';
+      } else if (summary.current_state === 'no_pulse_history') {
+        intEmptyMsg.textContent = 'Sem histórico de pulsos suficiente para análise.';
+      } else {
+        intEmptyMsg.textContent = 'Nenhuma interrupção relevante detectada hoje.';
+      }
+    }
+  } else {
+    if (intEmptyState) intEmptyState.classList.add('hidden');
+    if (intListContainer) {
+      intListContainer.classList.remove('hidden');
+      const rowsHtml = list.map(item => {
+        let bClass = 'badge-amber';
+        if (item.classification === 'counter_reset') {
+          bClass = 'badge-blue';
+        } else if (item.classification === 'telemetry_unavailable') {
+          bClass = 'badge-coral';
+        }
+
+        const startTime = item.start_at ? new Date(item.start_at).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '--';
+        const endTime = item.end_at ? new Date(item.end_at).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : (item.status === 'open' ? 'Agora' : '--');
+        const durStr = formatDurationSeconds(item.duration_seconds);
+        const statusBadge = item.status === 'open'
+          ? '<span class="scada-badge badge-amber" style="font-size: 0.65rem;">ABERTA</span>'
+          : '<span class="scada-badge badge-slate" style="font-size: 0.65rem;">CONCLUÍDA</span>';
+
+        return `
+          <div class="interruption-row">
+            <div class="int-row-header">
+              <div class="int-row-title-group">
+                <span class="scada-badge ${bClass}">${item.label}</span>
+                <span class="font-mono text-sm" style="color: #cbd5e1;">${startTime} → ${endTime}</span>
+                ${statusBadge}
+              </div>
+              <div class="font-mono text-sm font-bold" style="color: #38bdf8;">${durStr}</div>
+            </div>
+            <div class="int-row-msg">${item.message || ''}</div>
+          </div>
+        `;
+      }).join('');
+
+      intListContainer.innerHTML = rowsHtml;
+    }
+  }
+}
+
+async function fetchInterruptions(expectedGen) {
+  const reqGen = expectedGen !== undefined ? expectedGen : currentRequestGeneration;
+  const devId = selectedDeviceId;
+
+  try {
+    const response = await adminFetch(`/api/telemetry/interruptions?device_id=${encodeURIComponent(devId)}`, { cache: 'no-store' });
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
+    if (!response.ok) {
+      updateInterruptionsUI(null);
+      return;
+    }
+    const data = await response.json();
+    if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
+    updateInterruptionsUI(data);
+  } catch (err) {
+    if (err.message !== 'Sessão expirada.') {
+      console.error('Erro ao buscar diagnóstico de interrupções:', err);
+    }
+    if (reqGen === currentRequestGeneration && devId === selectedDeviceId) {
+      updateInterruptionsUI(null);
+    }
+  }
+}
+
+function setupInterruptionsAccordion() {
+  if (!accordionInterruptions) return;
+
+  accordionInterruptions.addEventListener('toggle', () => {
+    if (accordionInterruptions.open) {
+      // Ao abrir: buscar imediatamente e iniciar polling de 30 segundos
+      fetchInterruptions();
+      if (interruptionsInterval) clearInterval(interruptionsInterval);
+      interruptionsInterval = setInterval(() => {
+        if (accordionInterruptions.open) {
+          fetchInterruptions();
+        } else {
+          clearInterval(interruptionsInterval);
+          interruptionsInterval = null;
+        }
+      }, 30000);
+    } else {
+      // Ao fechar: parar polling imediatamente
+      if (interruptionsInterval) {
+        clearInterval(interruptionsInterval);
+        interruptionsInterval = null;
+      }
+    }
+  });
+}
+
 // CALIB-02 Semiautomatic Calibration DOM Elements
 const calibStateIdle = document.getElementById('calib-state-idle');
 const calibStateActive = document.getElementById('calib-state-active');
@@ -2632,11 +2918,13 @@ if (btnFactoryReset) {
 // Accordion toggle listener para atualizar gráficos quando aberto
 document.querySelectorAll('details').forEach(detail => {
   detail.addEventListener('toggle', () => {
-    if (detail.open) {
+    if (detail.open && detail.id !== 'accordion-interruptions') {
       fetchTelemetryHistory();
     }
   });
 });
+
+setupInterruptionsAccordion();
 
 
 
