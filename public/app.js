@@ -1433,7 +1433,7 @@ function handleFlowChartInteraction(e) {
   if (flowTooltip && chartFlowWrapper) {
     let statusText = 'SEM PULSOS';
     let statusClass = 'status-no-flow';
-    let hintText = 'Telemetria ativa no intervalo • Sem passagem detectada';
+    let hintText = 'O dispositivo permaneceu comunicando normalmente, mas não foram recebidos pulsos do hidrômetro neste intervalo.';
     let flowAvgStr = '--';
     let flowMaxStr = '--';
     let volStr = '--';
@@ -1450,8 +1450,8 @@ function handleFlowChartInteraction(e) {
     } else if (closest.status === 'no_flow') {
       statusText = 'SEM PULSOS';
       statusClass = 'status-no-flow';
-      hintText = 'Telemetria ativa no intervalo • 0 L/min';
-      flowAvgStr = '0,0 L/min';
+      hintText = 'O dispositivo permaneceu comunicando normalmente, mas não foram recebidos pulsos do hidrômetro neste intervalo.';
+      flowAvgStr = '0,0 L/min medido';
       flowMaxStr = '0,0 L/min';
       volStr = '0,0 L';
       pulseStr = '0';
