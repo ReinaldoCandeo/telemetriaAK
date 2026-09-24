@@ -10,8 +10,8 @@ const BUCKET_MINUTES = 5;
 const TOTAL_BUCKETS = (WINDOW_HOURS * 60) / BUCKET_MINUTES; // 288 buckets
 const BUCKET_DURATION_MS = BUCKET_MINUTES * 60 * 1000; // 300.000 ms
 const PAGE_SIZE = 1000;
-const MAX_PULSE_EVENTS_24H = 8000;
 const SESSION_GAP_SECONDS = 90;
+const TELEMETRY_TIMEOUT_SECONDS = 60;
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -68,9 +68,8 @@ export default async function handler(req, res) {
           window_hours: WINDOW_HOURS,
           bucket_minutes: BUCKET_MINUTES,
           bucket_count: TOTAL_BUCKETS,
-          pulse_events_loaded: 0,
+          telemetry_events_loaded: 0,
           valid_flow_samples: 0,
-          truncated: false,
           window_start: windowStartIso,
           window_end: windowEndIso
         },
@@ -78,28 +77,27 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2. Buscar eventos de pulso das últimas 24h paginados com ORDER BY received_at DESC
-    let allPulses = [];
+    // 2. Buscar TODOS os eventos de telemetria das últimas 24h paginados com ORDER BY received_at ASC
+    let allEvents = [];
     let page = 0;
     let hasMore = true;
-    let isTruncated = false;
 
-    while (hasMore && allPulses.length < MAX_PULSE_EVENTS_24H) {
+    while (hasMore) {
       const from = page * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
       const { data: pageData, error } = await supabase
         .from('telemetry_events')
-        .select('id, pulse_delta, pulse_total, received_at')
+        .select('id, type, pulse_delta, pulse_total, received_at')
         .eq('device_id', deviceId)
-        .eq('type', 'pulse')
         .gte('received_at', windowStartIso)
-        .order('received_at', { ascending: false })
+        .lte('received_at', windowEndIso)
+        .order('received_at', { ascending: true })
         .range(from, to);
 
       if (error) {
-        console.error('Erro ao buscar eventos de pulso para gráfico 24h:', error);
-        return res.status(500).json({ ok: false, error: 'Erro ao consultar eventos de pulso' });
+        console.error('Erro ao buscar eventos de telemetria para gráfico 24h:', error);
+        return res.status(500).json({ ok: false, error: 'Erro ao consultar eventos de telemetria' });
       }
 
       if (!pageData || pageData.length === 0) {
@@ -107,7 +105,7 @@ export default async function handler(req, res) {
         break;
       }
 
-      allPulses = allPulses.concat(pageData);
+      allEvents = allEvents.concat(pageData);
 
       if (pageData.length < PAGE_SIZE) {
         hasMore = false;
@@ -116,35 +114,26 @@ export default async function handler(req, res) {
       }
     }
 
-    if (allPulses.length >= MAX_PULSE_EVENTS_24H) {
-      isTruncated = true;
-      allPulses = allPulses.slice(0, MAX_PULSE_EVENTS_24H);
-    }
-
-    // 3. Buscar 1 pulso imediatamente anterior a window_start para cálculo do primeiro intervalo (se existir)
-    let preWindowPulse = null;
+    // 3. Buscar 1 evento imediatamente anterior a window_start para ancoragem de telemetria e primeiro pulso
+    let preWindowEvent = null;
     try {
-      const { data: prePulseData } = await supabase
+      const { data: preEventData } = await supabase
         .from('telemetry_events')
-        .select('id, pulse_delta, pulse_total, received_at')
+        .select('id, type, pulse_delta, pulse_total, received_at')
         .eq('device_id', deviceId)
-        .eq('type', 'pulse')
         .lt('received_at', windowStartIso)
         .order('received_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (prePulseData) {
-        preWindowPulse = prePulseData;
+      if (preEventData) {
+        preWindowEvent = preEventData;
       }
     } catch (preErr) {
-      console.warn('Aviso: Não foi possível buscar pulso anterior à janela:', preErr);
+      console.warn('Aviso: Não foi possível buscar evento anterior à janela:', preErr);
     }
 
-    // 4. Reordenar os pulsos da janela em ordem cronológica (ASC)
-    const chronoPulses = [...allPulses].reverse();
-
-    // 5. Inicializar os 288 buckets de 5 minutos
+    // 4. Inicializar os 288 buckets de 5 minutos
     const buckets = [];
     for (let i = 0; i < TOTAL_BUCKETS; i++) {
       const bStartMs = windowStartMs + (i * BUCKET_DURATION_MS);
@@ -154,12 +143,11 @@ export default async function handler(req, res) {
         timestamp: new Date(bStartMs).toISOString(),
         bucket_start: new Date(bStartMs).toISOString(),
         bucket_end: new Date(bEndMs).toISOString(),
-        flow_lpm: 0,
-        max_flow_lpm: 0,
-        volume_liters: 0,
+        bStartMs,
+        bEndMs,
+        events: [],
         pulse_count: 0,
-        sample_count: 0,
-        status: 'no_flow',
+        volume_liters: 0,
         _validFlowSamples: []
       });
     }
@@ -170,28 +158,38 @@ export default async function handler(req, res) {
       return Math.min(Math.max(idx, 0), TOTAL_BUCKETS - 1);
     }
 
-    // 6. Contabilizar volume e contagem de pulsos para todos os pulsos pertencentes aos buckets
-    for (const p of chronoPulses) {
-      if (p.received_at) {
-        const t = new Date(p.received_at).getTime();
+    // 5. Indexar eventos nos buckets correspondentes
+    for (const ev of allEvents) {
+      if (ev.received_at) {
+        const t = new Date(ev.received_at).getTime();
         const bIdx = getBucketIndex(t);
         if (bIdx >= 0) {
-          const delta = typeof p.pulse_delta === 'number' && p.pulse_delta > 0 ? p.pulse_delta : 1;
-          buckets[bIdx].pulse_count += delta;
-          buckets[bIdx].volume_liters += delta * calib.liters_per_pulse;
+          buckets[bIdx].events.push(ev);
+          if (ev.type === 'pulse') {
+            const delta = typeof ev.pulse_delta === 'number' && ev.pulse_delta > 0 ? ev.pulse_delta : 1;
+            buckets[bIdx].pulse_count += delta;
+            buckets[bIdx].volume_liters += delta * calib.liters_per_pulse;
+          }
         }
       }
     }
 
-    // 7. Calcular amostras válidas de vazão cronologicamente entre pares consecutivos
-    const evalPulses = preWindowPulse ? [preWindowPulse, ...chronoPulses] : chronoPulses;
-    let totalValidFlowSamples = 0;
+    // 6. Calcular amostras válidas de vazão cronologicamente entre pulsos unitários consecutivos
+    const evalPulses = [];
+    if (preWindowEvent && preWindowEvent.type === 'pulse') {
+      evalPulses.push(preWindowEvent);
+    }
+    for (const ev of allEvents) {
+      if (ev.type === 'pulse') {
+        evalPulses.push(ev);
+      }
+    }
 
+    let totalValidFlowSamples = 0;
     for (let i = 0; i < evalPulses.length - 1; i++) {
       const p1 = evalPulses[i];
       const p2 = evalPulses[i + 1];
 
-      // Proteção contra eventos acumulados/offline: ambos devem ser pulsos unitários (pulse_delta === 1)
       if (
         p1.pulse_delta === 1 &&
         p2.pulse_delta === 1 &&
@@ -204,12 +202,11 @@ export default async function handler(req, res) {
         if (!isNaN(t1) && !isNaN(t2) && t2 > t1) {
           const intervalSeconds = (t2 - t1) / 1000;
 
-          // Somente se for dentro do limiar de passagem contínua (<= 90s)
+          // Limiar de sessão de fluxo contínuo (<= 90s)
           if (intervalSeconds > 0 && intervalSeconds <= SESSION_GAP_SECONDS) {
             const rawLpm = (calib.liters_per_pulse / intervalSeconds) * 60;
 
             if (Number.isFinite(rawLpm) && rawLpm > 0) {
-              // Associar essa amostra de vazão ao bucket correspondente ao timestamp de P2
               const bIdx = getBucketIndex(t2);
               if (bIdx >= 0) {
                 buckets[bIdx]._validFlowSamples.push(rawLpm);
@@ -221,28 +218,101 @@ export default async function handler(req, res) {
       }
     }
 
-    // 8. Finalizar métricas de cada bucket
-    const finalizedData = buckets.map(b => {
-      let flowLpm = 0;
-      let maxFlowLpm = 0;
-      let status = 'no_flow';
+    // 7. Avaliar continuidade de telemetria e classificar estado de cada bucket
+    const allTimelineEvents = preWindowEvent ? [preWindowEvent, ...allEvents] : allEvents;
+
+    const finalizedData = buckets.map((b) => {
+      const bEvents = b.events;
+      let hasContinuousTelemetry = false;
+
+      // Buscar último evento anterior ao início do bucket
+      let prevEvBeforeBucket = null;
+      for (let k = allTimelineEvents.length - 1; k >= 0; k--) {
+        const evT = new Date(allTimelineEvents[k].received_at).getTime();
+        if (evT < b.bStartMs) {
+          prevEvBeforeBucket = allTimelineEvents[k];
+          break;
+        }
+      }
+
+      // Buscar primeiro evento posterior ao fim do bucket
+      let nextEvAfterBucket = null;
+      for (let k = 0; k < allTimelineEvents.length; k++) {
+        const evT = new Date(allTimelineEvents[k].received_at).getTime();
+        if (evT > b.bEndMs) {
+          nextEvAfterBucket = allTimelineEvents[k];
+          break;
+        }
+      }
+
+      if (bEvents.length === 0) {
+        if (prevEvBeforeBucket && nextEvAfterBucket) {
+          const gap = (new Date(nextEvAfterBucket.received_at).getTime() - new Date(prevEvBeforeBucket.received_at).getTime()) / 1000;
+          hasContinuousTelemetry = gap <= TELEMETRY_TIMEOUT_SECONDS;
+        } else {
+          hasContinuousTelemetry = false;
+        }
+      } else {
+        let maxGap = 0;
+
+        // Gap inicial (do evento anterior até o primeiro do bucket)
+        const firstEvMs = new Date(bEvents[0].received_at).getTime();
+        if (prevEvBeforeBucket) {
+          const g = (firstEvMs - new Date(prevEvBeforeBucket.received_at).getTime()) / 1000;
+          if (g > maxGap) maxGap = g;
+        } else {
+          const g = (firstEvMs - b.bStartMs) / 1000;
+          if (g > maxGap) maxGap = g;
+        }
+
+        // Gaps internos entre eventos consecutivos do bucket
+        for (let k = 0; k < bEvents.length - 1; k++) {
+          const t1 = new Date(bEvents[k].received_at).getTime();
+          const t2 = new Date(bEvents[k + 1].received_at).getTime();
+          const g = (t2 - t1) / 1000;
+          if (g > maxGap) maxGap = g;
+        }
+
+        // Gap final (do último evento do bucket até o próximo evento ou tempo atual)
+        const lastEvMs = new Date(bEvents[bEvents.length - 1].received_at).getTime();
+        if (nextEvAfterBucket) {
+          const g = (new Date(nextEvAfterBucket.received_at).getTime() - lastEvMs) / 1000;
+          if (g > maxGap) maxGap = g;
+        } else {
+          const effectiveEnd = Math.min(nowMs, b.bEndMs);
+          const g = Math.max(0, (effectiveEnd - lastEvMs) / 1000);
+          if (g > maxGap) maxGap = g;
+        }
+
+        hasContinuousTelemetry = maxGap <= TELEMETRY_TIMEOUT_SECONDS;
+      }
+
+      let flowLpm = null;
+      let maxFlowLpm = null;
+      let status = 'telemetry_unavailable';
       const sampleCount = b._validFlowSamples.length;
 
       if (sampleCount > 0) {
+        // Estado A: FLOW (passagem calculada com amostras válidas)
         status = 'flow';
         const sum = b._validFlowSamples.reduce((acc, v) => acc + v, 0);
         flowLpm = Number((sum / sampleCount).toFixed(2));
         maxFlowLpm = Number(Math.max(...b._validFlowSamples).toFixed(2));
-      } else if (b.pulse_count > 0) {
-        // Houve atividade de pulsos no bucket, mas sem cálculo válido de vazão contínua
+      } else if (hasContinuousTelemetry && b.pulse_count === 0) {
+        // Estado B: NO_FLOW (telemetria contínua comprovada e zero pulsos)
+        status = 'no_flow';
+        flowLpm = 0;
+        maxFlowLpm = 0;
+      } else if (hasContinuousTelemetry && b.pulse_count > 0) {
+        // Estado C: INSUFFICIENT_DATA (telemetria ativa, mas pulsos insuficientes para cálculo de vazão contínua)
         status = 'insufficient_data';
         flowLpm = null;
         maxFlowLpm = null;
       } else {
-        // Período sem passagem de água
-        status = 'no_flow';
-        flowLpm = 0;
-        maxFlowLpm = 0;
+        // Estado D: TELEMETRY_UNAVAILABLE (ausência de telemetria suficiente para inferir vazão)
+        status = 'telemetry_unavailable';
+        flowLpm = null;
+        maxFlowLpm = null;
       }
 
       return {
@@ -267,9 +337,8 @@ export default async function handler(req, res) {
         window_hours: WINDOW_HOURS,
         bucket_minutes: BUCKET_MINUTES,
         bucket_count: TOTAL_BUCKETS,
-        pulse_events_loaded: allPulses.length,
+        telemetry_events_loaded: allEvents.length,
         valid_flow_samples: totalValidFlowSamples,
-        truncated: isTruncated,
         window_start: windowStartIso,
         window_end: windowEndIso
       },

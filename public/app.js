@@ -1412,49 +1412,66 @@ function handleFlowChartInteraction(e) {
     let color = '#38bdf8';
     if (closest.status === 'insufficient_data') color = '#f59e0b';
     else if (closest.status === 'no_flow') color = '#94a3b8';
+    else if (closest.status === 'telemetry_unavailable') color = '#fb7185';
 
     highlightPoint.setAttribute('fill', color);
     highlightRing.setAttribute('stroke', color);
     guideline.setAttribute('stroke', color);
+
+    if (closest.status === 'telemetry_unavailable' || closest.status === 'insufficient_data') {
+      highlightPoint.style.display = 'none';
+      highlightRing.style.display = 'none';
+    } else {
+      highlightPoint.style.display = '';
+      highlightRing.style.display = '';
+    }
 
     interactiveGroup.style.display = '';
   }
 
   // 6. Atualizar Tooltip HTML e posicionamento com acompanhamento do cursor + detecção de colisão
   if (flowTooltip && chartFlowWrapper) {
-    let statusText = 'SEM PASSAGEM';
+    let statusText = 'SEM PULSOS';
     let statusClass = 'status-no-flow';
+    let hintText = 'Telemetria ativa no intervalo • Sem passagem detectada';
+    let flowAvgStr = '--';
+    let flowMaxStr = '--';
+    let volStr = '--';
+    let pulseStr = '--';
+
     if (closest.status === 'flow') {
       statusText = 'PASSAGEM';
       statusClass = 'status-flow';
+      hintText = 'Média do intervalo de 5 min';
+      flowAvgStr = typeof closest.flow_lpm === 'number' ? `${closest.flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min` : '--';
+      flowMaxStr = typeof closest.max_flow_lpm === 'number' ? `${closest.max_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min` : flowAvgStr;
+      volStr = typeof closest.volume_liters === 'number' ? `${closest.volume_liters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} L` : '--';
+      pulseStr = typeof closest.pulse_count === 'number' ? `${closest.pulse_count.toLocaleString('pt-BR')}` : '--';
+    } else if (closest.status === 'no_flow') {
+      statusText = 'SEM PULSOS';
+      statusClass = 'status-no-flow';
+      hintText = 'Telemetria ativa no intervalo • 0 L/min';
+      flowAvgStr = '0,0 L/min';
+      flowMaxStr = '0,0 L/min';
+      volStr = '0,0 L';
+      pulseStr = '0';
     } else if (closest.status === 'insufficient_data') {
       statusText = 'DADOS INSUFICIENTES';
       statusClass = 'status-insufficient';
+      hintText = 'Volume registrado, mas são necessários pelo menos 2 pulsos para calcular a vazão.';
+      flowAvgStr = '--';
+      flowMaxStr = '--';
+      volStr = typeof closest.volume_liters === 'number' ? `${closest.volume_liters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} L` : '--';
+      pulseStr = typeof closest.pulse_count === 'number' ? `${closest.pulse_count.toLocaleString('pt-BR')}` : '--';
+    } else {
+      statusText = 'SEM TELEMETRIA';
+      statusClass = 'status-unavailable';
+      hintText = 'Não houve comunicação suficiente com o dispositivo para determinar a vazão neste intervalo.';
+      flowAvgStr = '--';
+      flowMaxStr = '--';
+      volStr = '--';
+      pulseStr = '--';
     }
-
-    let flowAvgStr = '--';
-    if (closest.status === 'flow' && typeof closest.flow_lpm === 'number') {
-      flowAvgStr = `${closest.flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`;
-    } else if (closest.status === 'no_flow') {
-      flowAvgStr = '0,0 L/min';
-    }
-
-    let flowMaxStr = '--';
-    if (typeof closest.max_flow_lpm === 'number' && closest.max_flow_lpm > 0) {
-      flowMaxStr = `${closest.max_flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`;
-    } else if (closest.status === 'flow' && typeof closest.flow_lpm === 'number') {
-      flowMaxStr = `${closest.flow_lpm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} L/min`;
-    } else if (closest.status === 'no_flow') {
-      flowMaxStr = '0,0 L/min';
-    }
-
-    const volStr = typeof closest.volume_liters === 'number'
-      ? `${closest.volume_liters.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} L`
-      : '--';
-
-    const pulseStr = typeof closest.pulse_count === 'number'
-      ? `${closest.pulse_count.toLocaleString('pt-BR')}`
-      : '--';
 
     flowTooltip.innerHTML = `
       <div class="tt-header">
@@ -1465,7 +1482,7 @@ function handleFlowChartInteraction(e) {
       <div class="tt-row"><span class="tt-label">PICO NO INTERVALO:</span><span class="tt-val">${flowMaxStr}</span></div>
       <div class="tt-row"><span class="tt-label">Volume:</span><span class="tt-val">${volStr}</span></div>
       <div class="tt-row"><span class="tt-label">Pulsos:</span><span class="tt-val">${pulseStr}</span></div>
-      <div class="tt-hint">Média do intervalo de 5 min</div>
+      <div class="tt-hint">${hintText}</div>
     `;
 
     const wrapperRect = chartFlowWrapper.getBoundingClientRect();

@@ -1847,6 +1847,12 @@ body.auth-loading .app-container {
   border: 1px solid rgba(251, 191, 36, 0.4);
 }
 
+.flow-chart-tooltip .tt-status.status-unavailable {
+  background: rgba(225, 29, 72, 0.2);
+  color: #fb7185;
+  border: 1px solid rgba(251, 113, 133, 0.4);
+}
+
 .flow-chart-tooltip .tt-row {
   display: flex;
   justify-content: space-between;
