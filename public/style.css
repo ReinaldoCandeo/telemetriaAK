@@ -470,6 +470,13 @@ body {
   border: 1px solid rgba(217, 119, 6, 0.5);
 }
 
+.badge-purple,
+.badge-test {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.5);
+}
+
 .badge-slate {
   background: rgba(148, 163, 184, 0.2);
   color: #cbd5e1;
@@ -1655,6 +1662,11 @@ body.auth-loading .app-container {
 .legend-partial {
   background: #f59e0b;
   border: 1px solid #fbbf24;
+}
+
+.legend-test {
+  background: #a855f7;
+  border: 1px solid #c084fc;
 }
 
 .legend-today {

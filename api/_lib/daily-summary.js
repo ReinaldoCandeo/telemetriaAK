@@ -12,6 +12,57 @@ function getSupabaseClient() {
 const PAGE_SIZE = 1000;
 
 /**
+ * Configuração centralizada de classificação de dias por dispositivo.
+ * Separa dias parciais, de teste ou não-operacionais das métricas consolidadas.
+ */
+export const DAY_CLASSIFICATIONS = {
+  'HIDRO-001': {
+    '2026-09-17': {
+      status: 'PARCIAL',
+      is_operational: false,
+      is_partial: true,
+      is_test: false,
+      reason: 'Início da telemetria'
+    },
+    '2026-09-18': {
+      status: 'TESTE',
+      is_operational: false,
+      is_partial: false,
+      is_test: true,
+      reason: 'Período de testes/desenvolvimento'
+    }
+  }
+};
+
+/**
+ * Obtém a classificação oficial de um determinado dia para um dispositivo.
+ */
+export function getDayClassification(deviceId, localDateStr, todayStr) {
+  if (localDateStr === todayStr) {
+    return {
+      status: 'EM_ANDAMENTO',
+      is_operational: false,
+      is_partial: true,
+      is_test: false,
+      reason: 'Dia corrente em andamento'
+    };
+  }
+
+  const deviceConfig = DAY_CLASSIFICATIONS[deviceId];
+  if (deviceConfig && deviceConfig[localDateStr]) {
+    return deviceConfig[localDateStr];
+  }
+
+  return {
+    status: 'FECHADO',
+    is_operational: true,
+    is_partial: false,
+    is_test: false,
+    reason: null
+  };
+}
+
+/**
  * Retorna os limites UTC (startUtc e endUtc) para um dia civil (YYYY-MM-DD) no fuso America/Sao_Paulo.
  * Garante que a janela contemple 00:00:00.000 até 23:59:59.999 no horário local de Palmital/SP.
  */
@@ -239,13 +290,8 @@ export async function calculateDailySummary(deviceId, localDateStr) {
     ? Number(maxFlow.toFixed(2))
     : null;
 
-  // 5. Determinação de Status
-  let status = 'FECHADO';
-  if (localDateStr === todayStr) {
-    status = 'EM_ANDAMENTO';
-  } else if (isPartial) {
-    status = 'PARCIAL';
-  }
+  // 5. Determinação de Status e Classificação Operacional
+  const classification = getDayClassification(deviceId, localDateStr, todayStr);
 
   return {
     device_id: deviceId,
@@ -259,8 +305,11 @@ export async function calculateDailySummary(deviceId, localDateStr) {
     flow_duration_seconds: Math.round(flowDurationSec),
     first_pulse_at: firstPulseAt,
     last_pulse_at: lastPulseAt,
-    is_partial: isPartial,
-    status: status,
+    is_partial: classification.is_partial,
+    is_test: classification.is_test,
+    is_operational: classification.is_operational,
+    classification_reason: classification.reason,
+    status: classification.status,
     has_telemetry: true
   };
 }

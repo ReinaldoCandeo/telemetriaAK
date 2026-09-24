@@ -2056,7 +2056,7 @@ function updateDailyUI(items) {
     const yStatus = yesterdayItem.status;
     const yDate = yesterdayItem.date ? yesterdayItem.date.split('-').reverse().join('/') : 'Ontem';
 
-    if (yStatus === 'FECHADO') {
+    if (yStatus === 'FECHADO' || yesterdayItem.is_operational) {
       const m3 = yesterdayItem.volume_m3 !== null ? Number(yesterdayItem.volume_m3) : (yesterdayItem.volume_liters ? Number(yesterdayItem.volume_liters) / 1000 : 0);
       const liters = yesterdayItem.volume_liters !== null ? Number(yesterdayItem.volume_liters) : 0;
       valYesterdayM3.innerHTML = `${m3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="unit">m³</span>`;
@@ -2067,12 +2067,23 @@ function updateDailyUI(items) {
         valYesterdayBadge.textContent = 'FECHADO';
         valYesterdayBadge.className = 'scada-badge badge-closed';
       }
-    } else if (yStatus === 'PARCIAL') {
+    } else if (yStatus === 'TESTE' || yesterdayItem.is_test) {
       const m3 = yesterdayItem.volume_m3 !== null ? Number(yesterdayItem.volume_m3) : (yesterdayItem.volume_liters ? Number(yesterdayItem.volume_liters) / 1000 : 0);
       const liters = yesterdayItem.volume_liters !== null ? Number(yesterdayItem.volume_liters) : 0;
       valYesterdayM3.innerHTML = `${m3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="unit">m³</span>`;
       if (valYesterdaySub) {
-        valYesterdaySub.textContent = `${liters.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L • Janela incompleta de medição`;
+        valYesterdaySub.textContent = `${liters.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L • Período de testes (${yDate})`;
+      }
+      if (valYesterdayBadge) {
+        valYesterdayBadge.textContent = 'TESTE';
+        valYesterdayBadge.className = 'scada-badge badge-test';
+      }
+    } else if (yStatus === 'PARCIAL' || yesterdayItem.is_partial) {
+      const m3 = yesterdayItem.volume_m3 !== null ? Number(yesterdayItem.volume_m3) : (yesterdayItem.volume_liters ? Number(yesterdayItem.volume_liters) / 1000 : 0);
+      const liters = yesterdayItem.volume_liters !== null ? Number(yesterdayItem.volume_liters) : 0;
+      valYesterdayM3.innerHTML = `${m3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="unit">m³</span>`;
+      if (valYesterdaySub) {
+        valYesterdaySub.textContent = `${liters.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L • Janela incompleta (${yDate})`;
       }
       if (valYesterdayBadge) {
         valYesterdayBadge.textContent = 'PARCIAL';
@@ -2091,28 +2102,28 @@ function updateDailyUI(items) {
     }
   }
 
-  // 3. Média 7 Dias (SOMENTE dias FECHADOS)
+  // 3. Média Operacional (SOMENTE dias FECHADOS e OPERACIONAIS)
   if (valAvg7M3) {
-    const closedDays = items.filter(d => d.status === 'FECHADO');
-    if (closedDays.length === 0) {
+    const operationalDays = items.filter(d => d.is_operational === true && d.status === 'FECHADO');
+    if (operationalDays.length === 0) {
       valAvg7M3.innerHTML = `-- <span class="unit">m³/dia</span>`;
-      if (valAvg7Sub) valAvg7Sub.textContent = 'Aguardando dias completos';
+      if (valAvg7Sub) valAvg7Sub.textContent = 'Aguardando dias operacionais';
       if (valAvg7Badge) {
-        valAvg7Badge.textContent = '0 DIAS FECHADOS';
+        valAvg7Badge.textContent = '0 DIAS OPERACIONAIS';
         valAvg7Badge.className = 'scada-badge badge-slate';
       }
     } else {
-      const sumM3 = closedDays.reduce((acc, d) => {
+      const sumM3 = operationalDays.reduce((acc, d) => {
         const v = d.volume_m3 !== null ? Number(d.volume_m3) : (d.volume_liters ? Number(d.volume_liters) / 1000 : 0);
         return acc + v;
       }, 0);
-      const avgM3 = sumM3 / closedDays.length;
+      const avgM3 = sumM3 / operationalDays.length;
       valAvg7M3.innerHTML = `${avgM3.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="unit">m³/dia</span>`;
       if (valAvg7Sub) {
-        valAvg7Sub.textContent = `${closedDays.length} ${closedDays.length === 1 ? 'dia completo considerado' : 'dias completos considerados'}`;
+        valAvg7Sub.textContent = `${operationalDays.length} ${operationalDays.length === 1 ? 'dia completo considerado' : 'dias completos considerados'}`;
       }
       if (valAvg7Badge) {
-        valAvg7Badge.textContent = `${closedDays.length} DIAS FECHADOS`;
+        valAvg7Badge.textContent = `${operationalDays.length} DIAS OPERACIONAIS`;
         valAvg7Badge.className = 'scada-badge badge-closed';
       }
     }
@@ -2184,27 +2195,42 @@ function renderDailyBarChart(items) {
     let strokeAttr = '';
     let statusText = d.status;
     let badgeClass = 'badge-slate';
+    let labelColor = '#38bdf8';
+    let tooltipNotice = '';
 
-    if (d.status === 'FECHADO') {
-      fillAttr = 'url(#dailyClosedGrad)';
-      strokeAttr = '#38bdf8';
-      statusText = 'FECHADO';
-      badgeClass = 'badge-closed';
-    } else if (d.status === 'PARCIAL') {
+    if (d.status === 'TESTE' || d.is_test) {
+      fillAttr = 'url(#dailyTestGrad)';
+      strokeAttr = '#c084fc';
+      statusText = 'TESTE';
+      badgeClass = 'badge-test';
+      labelColor = '#c084fc';
+      tooltipNotice = d.classification_reason ? `${d.classification_reason} — fora da média operacional` : 'Período de testes — fora da média operacional';
+    } else if (d.status === 'PARCIAL' || d.is_partial) {
       fillAttr = 'url(#dailyPartialGrad)';
       strokeAttr = '#fbbf24';
       statusText = 'PARCIAL';
       badgeClass = 'badge-partial';
+      labelColor = '#fbbf24';
+      tooltipNotice = d.classification_reason ? `${d.classification_reason} — dia parcial, fora da média operacional` : 'Dia parcial, fora da média operacional';
+    } else if (d.status === 'FECHADO' || d.is_operational) {
+      fillAttr = 'url(#dailyClosedGrad)';
+      strokeAttr = '#38bdf8';
+      statusText = 'OPERACIONAL';
+      badgeClass = 'badge-closed';
+      labelColor = '#38bdf8';
     } else if (d.status === 'EM_ANDAMENTO') {
       fillAttr = 'url(#dailyTodayGrad)';
       strokeAttr = '#67e8f9';
       statusText = 'HOJE (EM ANDAMENTO)';
       badgeClass = 'badge-today';
+      labelColor = '#67e8f9';
+      tooltipNotice = 'Dia corrente em andamento — fora da média consolidada';
     } else {
       fillAttr = 'rgba(51, 65, 85, 0.3)';
       strokeAttr = '#475569';
       statusText = 'SEM REGISTRO';
       badgeClass = 'badge-slate';
+      labelColor = '#64748b';
     }
 
     tooltipDataMap.push({
@@ -2216,7 +2242,8 @@ function renderDailyBarChart(items) {
       pulses: d.pulse_count !== null && d.pulse_count !== undefined ? Number(d.pulse_count).toLocaleString('pt-BR') : '--',
       avg_flow: d.average_flow_lpm !== null && d.average_flow_lpm !== undefined ? `${Number(d.average_flow_lpm).toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L/min` : '--',
       max_flow: d.max_flow_lpm !== null && d.max_flow_lpm !== undefined ? `${Number(d.max_flow_lpm).toLocaleString('pt-BR', { minimumFractionDigits: 1 })} L/min` : '--',
-      duration: d.flow_duration_seconds ? formatDuration(d.flow_duration_seconds) : '--'
+      duration: d.flow_duration_seconds ? formatDuration(d.flow_duration_seconds) : '--',
+      notice: tooltipNotice
     });
 
     if (d.status === 'SEM_REGISTRO' || volM3 === null) {
@@ -2230,8 +2257,7 @@ function renderDailyBarChart(items) {
       `;
     } else {
       const valLabel = volM3 > 0 ? `${volM3.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}` : '0';
-      const labelColor = isToday ? '#67e8f9' : (d.status === 'PARCIAL' ? '#fbbf24' : '#38bdf8');
-      const dateColor = isToday ? '#38bdf8' : '#94a3b8';
+      const dateColor = isToday ? '#38bdf8' : (d.status === 'TESTE' ? '#c084fc' : (d.status === 'PARCIAL' ? '#fbbf24' : '#94a3b8'));
       const dateWeight = isToday ? 'bold' : 'normal';
 
       barsSvg += `
@@ -2252,6 +2278,10 @@ function renderDailyBarChart(items) {
         <linearGradient id="dailyClosedGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#0284c7" stop-opacity="0.9"/>
           <stop offset="100%" stop-color="#0369a1" stop-opacity="0.4"/>
+        </linearGradient>
+        <linearGradient id="dailyTestGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#a855f7" stop-opacity="0.9"/>
+          <stop offset="100%" stop-color="#7e22ce" stop-opacity="0.35"/>
         </linearGradient>
         <linearGradient id="dailyPartialGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.9"/>
@@ -2304,6 +2334,9 @@ function renderDailyBarChart(items) {
       }
       if (data.duration !== '--') {
         html += `<div class="tt-row"><span class="tt-label">Tempo de Fluxo:</span><span class="tt-val">${data.duration}</span></div>`;
+      }
+      if (data.notice) {
+        html += `<div class="tt-row tt-notice" style="color:#fbbf24;font-size:11px;margin-top:4px;border-top:1px dashed rgba(255,255,255,0.12);padding-top:4px;">ℹ️ ${data.notice}</div>`;
       }
 
       tooltipEl.innerHTML = html;

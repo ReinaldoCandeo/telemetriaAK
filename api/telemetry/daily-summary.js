@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { requireViewerOrAdmin } from '../_lib/auth.js';
-import { calculateDailySummary, getTodayLocalDateStr } from '../_lib/daily-summary.js';
+import { calculateDailySummary, getTodayLocalDateStr, getDayClassification } from '../_lib/daily-summary.js';
 
 function getSupabaseClient() {
   return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -81,12 +81,18 @@ export default async function handler(req, res) {
     const items = [];
 
     for (const dateStr of datesList) {
+      const classification = getDayClassification(deviceId, dateStr, todayStr);
+
       // Para o dia corrente ("Hoje"), calcular SEMPRE dinamicamente
       if (dateStr === todayStr) {
         const dynamicToday = await calculateDailySummary(deviceId, dateStr);
         items.push({
           date: dateStr,
           status: 'EM_ANDAMENTO',
+          is_operational: false,
+          is_partial: true,
+          is_test: false,
+          classification_reason: classification.reason,
           source: 'dynamic',
           persisted: false,
           pulse_count: dynamicToday.pulse_count,
@@ -97,8 +103,7 @@ export default async function handler(req, res) {
           max_flow_lpm: dynamicToday.max_flow_lpm,
           flow_duration_seconds: dynamicToday.flow_duration_seconds,
           first_pulse_at: dynamicToday.first_pulse_at,
-          last_pulse_at: dynamicToday.last_pulse_at,
-          is_partial: dynamicToday.is_partial
+          last_pulse_at: dynamicToday.last_pulse_at
         });
         continue;
       }
@@ -111,7 +116,11 @@ export default async function handler(req, res) {
 
         items.push({
           date: dateStr,
-          status: pRow.status,
+          status: classification.status,
+          is_operational: classification.is_operational,
+          is_partial: classification.is_partial,
+          is_test: classification.is_test,
+          classification_reason: classification.reason,
           source: 'persisted',
           persisted: true,
           pulse_count: Number(pRow.pulse_count || 0),
@@ -122,8 +131,7 @@ export default async function handler(req, res) {
           max_flow_lpm: pRow.max_flow_lpm !== null ? Number(pRow.max_flow_lpm) : null,
           flow_duration_seconds: pRow.flow_duration_seconds,
           first_pulse_at: pRow.first_pulse_at,
-          last_pulse_at: pRow.last_pulse_at,
-          is_partial: Boolean(pRow.is_partial)
+          last_pulse_at: pRow.last_pulse_at
         });
       } else {
         // Fallback dinâmico SOMENTE DE LEITURA (não grava no banco)
@@ -131,6 +139,10 @@ export default async function handler(req, res) {
         items.push({
           date: dateStr,
           status: computed.status,
+          is_operational: computed.is_operational,
+          is_partial: computed.is_partial,
+          is_test: computed.is_test,
+          classification_reason: computed.classification_reason,
           source: 'dynamic',
           persisted: false,
           pulse_count: computed.pulse_count,
@@ -141,17 +153,24 @@ export default async function handler(req, res) {
           max_flow_lpm: computed.max_flow_lpm,
           flow_duration_seconds: computed.flow_duration_seconds,
           first_pulse_at: computed.first_pulse_at,
-          last_pulse_at: computed.last_pulse_at,
-          is_partial: computed.is_partial
+          last_pulse_at: computed.last_pulse_at
         });
       }
     }
+
+    // 4. Calcular métricas operacionais consolidadas (apenas dias fechados e operacionais)
+    const operationalDays = items.filter(d => d.is_operational === true && d.status === 'FECHADO');
+    const operationalSumM3 = operationalDays.reduce((acc, d) => acc + (d.volume_m3 !== null ? Number(d.volume_m3) : 0), 0);
+    const operationalAvgM3 = operationalDays.length > 0 ? Number((operationalSumM3 / operationalDays.length).toFixed(3)) : null;
 
     return res.status(200).json({
       ok: true,
       device_id: deviceId,
       timezone: 'America/Sao_Paulo',
       days: days,
+      operational_days_count: operationalDays.length,
+      operational_sum_m3: Number(operationalSumM3.toFixed(3)),
+      operational_avg_m3: operationalAvgM3,
       items: items
     });
 
