@@ -2538,7 +2538,7 @@ async function fetchInterruptions(expectedGen) {
   const devId = selectedDeviceId;
 
   try {
-    const response = await adminFetch(`/api/telemetry/interruptions?device_id=${encodeURIComponent(devId)}`, { cache: 'no-store' });
+    const response = await adminFetch(`/api/telemetry/flow-sessions?device_id=${encodeURIComponent(devId)}&mode=interruptions`, { cache: 'no-store' });
     if (reqGen !== currentRequestGeneration || devId !== selectedDeviceId) return;
     if (!response.ok) {
       updateInterruptionsUI(null);
